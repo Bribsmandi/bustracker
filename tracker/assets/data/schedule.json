@@ -1,0 +1,129 @@
+{
+  "_instructions": "Scheduled DEPARTURE times (24h HH:MM) from each terminal, transcribed from the timetable PDF. Each entry = one bus leaving one origin on one route. `somsVariant: true` times detour via SOMS (marked (S) in the PDF). Used to compute a bus's estimated take-off time once it is waiting at a terminal.",
+  "schedules": [
+    {
+      "busId": "bus1",
+      "routeId": "mbh_to_east",
+      "origin": "mbh",
+      "departures": ["07:20","07:40","08:00","08:30","08:50","09:10","09:40","10:00","10:50","11:50","12:20","12:40","13:00","13:20","13:50","14:05","15:00","16:20","16:50","17:10","17:30","17:50"]
+    },
+    {
+      "busId": "bus1",
+      "routeId": "east_to_mbh",
+      "origin": "east_campus",
+      "departures": ["07:30","07:50","08:20","08:40","09:00","09:30","09:50","10:40","11:40","12:10","12:20","12:50","13:10","13:40","13:55","14:50","16:10","16:40","17:00","17:20","17:40"]
+    },
+    {
+      "busId": "bus2",
+      "routeId": "mbh_to_east",
+      "origin": "mbh",
+      "departures": ["07:30","07:50","08:10","08:40","09:00","09:35","09:55","10:05","10:55","12:10","12:30","12:50","13:10","13:40","14:00","14:55","16:10","16:40","17:00","17:20","17:40","18:00"]
+    },
+    {
+      "busId": "bus2",
+      "routeId": "east_to_mbh",
+      "origin": "east_campus",
+      "departures": ["07:20","07:40","08:00","08:30","08:50","09:25","09:40","09:55","10:45","12:00","12:20","12:40","13:00","13:30","13:50","14:45","16:00","16:30","16:50","17:10","17:30","17:50"]
+    },
+    {
+      "busId": "bus3",
+      "routeId": "lh_to_east",
+      "origin": "lh",
+      "departures": ["07:30","08:10","08:50","09:10","09:35","10:55","11:45","12:15","12:50","13:10","13:35","14:50","15:35","16:00","16:35","17:00","17:40"]
+    },
+    {
+      "busId": "bus3",
+      "routeId": "east_to_lh",
+      "origin": "east_campus",
+      "departures": [
+        { "time": "07:20" },
+        { "time": "07:35", "somsVariant": true },
+        { "time": "08:02" },
+        { "time": "08:30", "somsVariant": true },
+        { "time": "09:02" },
+        { "time": "09:27" },
+        { "time": "10:40", "somsVariant": true },
+        { "time": "11:35" },
+        { "time": "11:55", "somsVariant": true },
+        { "time": "12:30", "somsVariant": true },
+        { "time": "13:00" },
+        { "time": "13:25" },
+        { "time": "13:40", "somsVariant": true },
+        { "time": "15:15", "somsVariant": true },
+        { "time": "15:52" },
+        { "time": "16:15", "somsVariant": true },
+        { "time": "16:50" },
+        { "time": "17:15", "somsVariant": true }
+      ]
+    },
+    {
+      "busId": "bus3",
+      "routeId": "soms_to_east",
+      "origin": "soms",
+      "departures": ["07:50","08:45","10:50","12:10","12:45","13:50","15:30","16:30","17:35"]
+    },
+    {
+      "busId": "bus4",
+      "routeId": "lh_to_east",
+      "origin": "lh",
+      "departures": ["07:40","07:55","08:30","09:05","09:25","09:55","10:15","10:55","12:05","12:35","12:50","13:20","13:45","14:00","15:50","16:20","16:40","17:15","17:40","18:15"]
+    },
+    {
+      "busId": "bus4",
+      "routeId": "east_to_lh",
+      "origin": "east_campus",
+      "departures": [
+        { "time": "07:20" },
+        { "time": "07:48" },
+        { "time": "08:22" },
+        { "time": "08:45", "somsVariant": true },
+        { "time": "09:17" },
+        { "time": "09:30", "somsVariant": true },
+        { "time": "10:05" },
+        { "time": "10:45" },
+        { "time": "11:55" },
+        { "time": "12:25" },
+        { "time": "12:40" },
+        { "time": "13:00", "somsVariant": true },
+        { "time": "13:25", "somsVariant": true },
+        { "time": "13:52" },
+        { "time": "15:42" },
+        { "time": "16:10" },
+        { "time": "16:30" },
+        { "time": "16:50", "somsVariant": true },
+        { "time": "17:30" },
+        { "time": "17:55", "somsVariant": true }
+      ]
+    },
+    {
+      "busId": "bus4",
+      "routeId": "soms_to_east",
+      "origin": "soms",
+      "departures": ["07:35","09:00","09:50","13:15","13:40","17:10","18:10"]
+    },
+    {
+      "busId": "ac_mbh",
+      "routeId": "ac_mbh_out",
+      "origin": "mbh",
+      "departures": ["08:55","09:30","09:50","12:35","12:55","13:35","13:55","15:55","16:35","16:55"]
+    },
+    {
+      "busId": "ac_mbh",
+      "routeId": "ac_arch_to_mbh",
+      "origin": "architecture",
+      "departures": ["09:10","09:35","12:00","12:40","13:20","13:40","15:40","16:20","16:40"]
+    },
+    {
+      "busId": "ac_lh",
+      "routeId": "ac_lh_out",
+      "origin": "lh",
+      "departures": ["08:55","09:30","09:55","12:30","12:55","13:30","13:50","16:30","16:50"]
+    },
+    {
+      "busId": "ac_lh",
+      "routeId": "ac_arch_to_lh",
+      "origin": "architecture",
+      "departures": ["08:50","09:20","09:45","12:20","12:45","13:20","13:40","16:20","16:40"]
+    }
+  ]
+}

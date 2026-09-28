@@ -1,0 +1,26 @@
+{
+  "esp32-01": {
+    "bus_id": "bus1",
+    "secret": "e3d2b3bb9875121546cd63cf5d3863a8"
+  },
+  "esp32-02": {
+    "bus_id": "bus2",
+    "secret": "7e0ee4d06b73410b5cafe60773e8dc4a"
+  },
+  "esp32-03": {
+    "bus_id": "bus3",
+    "secret": "3df26588a56d4a001b7ed5eb92380fbc"
+  },
+  "esp32-04": {
+    "bus_id": "bus4",
+    "secret": "c6e3148fe4e7a4835ec403a234111c7f"
+  },
+  "esp32-05": {
+    "bus_id": "ac_mbh",
+    "secret": "6de0798e7a504dfa6c5e34a0cf20cc20"
+  },
+  "esp32-06": {
+    "bus_id": "ac_lh",
+    "secret": "6ce6684b759e22910445ac19d409f57a"
+  }
+}

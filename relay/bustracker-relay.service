@@ -1,0 +1,30 @@
+[Unit]
+Description=Bus tracker HTTP relay (plain HTTP from ESP32 -> Supabase HTTPS)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=bustracker
+Group=bustracker
+Environment=RELAY_PORT=8081
+Environment=RELAY_CONF=/etc/bustracker-relay
+Environment=RELAY_STATE=/var/lib/bustracker-relay
+ExecStart=/usr/bin/python3 /opt/bustracker-relay/relay.py
+Restart=always
+RestartSec=3
+
+# Hardening. This box also runs a production Supabase stack and a WhatsApp
+# bridge; the relay must not be able to reach or disturb either.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+ReadWritePaths=/var/lib/bustracker-relay
+StateDirectory=bustracker-relay
+
+[Install]
+WantedBy=multi-user.target

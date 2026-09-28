@@ -1,0 +1,14 @@
+{
+  "_instructions": "Coordinates in decimal degrees. `isTerminal` marks stops where buses wait before departing (schedule departure times apply there). Stop ids are referenced by routes.json and schedule.json — do not rename them.",
+  "_notes": "Main Gate removed: the bus drives past it but does not halt, so it is not a boarding point. South Campus merged into `soms` (MBA Hostel) — same location, and the PDF's South Campus timetable now maps to the soms stop.",
+  "stops": [
+    { "id": "mbh",           "name": "MBH",           "fullName": "Mega Boys Hostel",  "isTerminal": true,  "lat": 11.317194, "lng": 75.937560 },
+    { "id": "lh",            "name": "LH",            "fullName": "Ladies Hostel",     "isTerminal": true,  "lat": 11.318366, "lng": 75.930985 },
+    { "id": "soms",          "name": "SOMS",          "fullName": "MBA Hostel (SOMS)", "isTerminal": true,  "lat": 11.314827, "lng": 75.932458 },
+    { "id": "centre_circle", "name": "Centre Circle", "fullName": "Centre Circle",     "isTerminal": false, "lat": 11.321440, "lng": 75.934096 },
+    { "id": "atm_circle",    "name": "ATM Circle",    "fullName": "ATM Circle",        "isTerminal": false, "lat": 11.320985, "lng": 75.934536 },
+    { "id": "library",       "name": "Library",       "fullName": "Library",           "isTerminal": false, "lat": 11.321631, "lng": 75.934986 },
+    { "id": "architecture",  "name": "Architecture",  "fullName": "Architecture",      "isTerminal": true,  "lat": 11.322796, "lng": 75.936170 },
+    { "id": "east_campus",   "name": "East Campus",   "fullName": "East Campus",       "isTerminal": true,  "lat": 11.323114, "lng": 75.937258 }
+  ]
+}

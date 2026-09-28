@@ -1,0 +1,11 @@
+{
+  "_instructions": "The 6 physical buses. `id` is used everywhere (schedule, live location rows). `homeTerminal` is where the bus starts its day. AC buses only run the hostel <-> Architecture loop.",
+  "buses": [
+    { "id": "bus1",   "label": "Bus 1",       "type": "regular", "homeTerminal": "mbh", "color": "#e6194b" },
+    { "id": "bus2",   "label": "Bus 2",       "type": "regular", "homeTerminal": "mbh", "color": "#3cb44b" },
+    { "id": "bus3",   "label": "Bus 3",       "type": "regular", "homeTerminal": "lh",  "color": "#4363d8" },
+    { "id": "bus4",   "label": "Bus 4",       "type": "regular", "homeTerminal": "lh",  "color": "#f58231" },
+    { "id": "ac_mbh", "label": "AC Bus (MBH)", "type": "ac",      "homeTerminal": "mbh", "color": "#911eb4" },
+    { "id": "ac_lh",  "label": "AC Bus (LH)",  "type": "ac",      "homeTerminal": "lh",  "color": "#008080" }
+  ]
+}
