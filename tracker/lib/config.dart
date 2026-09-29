@@ -37,7 +37,18 @@ class Config {
   /// moment we subscribe.
   static const String topicBuses = '$topicRoot/live/buses';
   static const String topicConfig = '$topicRoot/live/config';
+  static const String topicServer = '$topicRoot/live/server';
   static String topicStop(String stopId) => '$topicRoot/live/stop/$stopId';
+
+  /// How long a snapshot stays trustworthy without a fresh one arriving.
+  ///
+  /// This is the safeguard against retained messages. Every live topic is
+  /// retained so the app has state the instant it connects — but a retained
+  /// message outlives the server that published it, and its `status` field is
+  /// frozen at publish time. A snapshot saying "live" therefore proves nothing
+  /// on its own. The server republishes at least every 10 s, so silence for
+  /// appreciably longer than that means it is gone, whatever the payload says.
+  static const Duration serverSilentAfter = Duration(seconds: 35);
 
   /// REST base URL, for the things pub/sub is the wrong shape for: trip
   /// planning and analytics. Empty disables them and the app falls back to its

@@ -238,6 +238,32 @@ class BusPosition {
   /// True when the bus is sitting at a terminal waiting to depart.
   bool get isParked => journeyState == 'parked';
 
+  /// The same bus, but no longer to be believed.
+  ///
+  /// Used when the server has stopped publishing: the position came from a
+  /// retained message whose `status` was frozen at publish time, so the bus
+  /// must be shown greyed out however live it claims to be.
+  BusPosition asStale() => BusPosition(
+        busId: busId,
+        lat: lat,
+        lng: lng,
+        speed: speed,
+        heading: heading,
+        routeId: routeId,
+        serverStatus: 'stale',
+        ageSec: ageSec,
+        progress: progress,
+        nextStop: nextStop,
+        etaSec: etaSec,
+        etaConfident: false,
+        atStop: atStop,
+        originId: originId,
+        destinationId: destinationId,
+        journeyState: journeyState,
+        simulated: simulated,
+        updatedAt: updatedAt,
+      );
+
   /// Parses one entry of the Pi's `campus/live/buses` snapshot.
   ///
   /// Returns null for a bus the server has never had a fix from: it has no

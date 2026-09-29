@@ -47,10 +47,18 @@ do not collide with the thousands of others on this broker.
 | `<root>/live/buses` | Pi | app | **yes** |
 | `<root>/live/stop/{stop_id}` | Pi | app | **yes** |
 | `<root>/live/config` | Pi | app | **yes** |
+| `<root>/live/server` | Pi + its Last Will | app | **yes** |
 
 Everything the app needs is retained, so opening the app delivers current state
 on subscribe — no request/response round trip, no "fetch then subscribe" race,
 and a timetable fix reaches phones without an app release.
+
+Retained cuts both ways: a snapshot outlives the process that published it, and
+its `status` field is frozen at publish time. `<root>/live/server` is how the
+app tells a live server from a stale message — the Pi publishes `online` on
+connect and registers a Last Will so the broker publishes `offline` if it drops.
+The app also treats silence longer than 35 s as stale, which covers a Pi that
+died before the broker noticed.
 
 Each bus registers an MQTT Last Will, so the broker announces it offline the
 moment the connection dies — no polling, no timeout guesswork.

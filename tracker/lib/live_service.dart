@@ -7,9 +7,13 @@ import 'package:mqtt_client/mqtt_server_client.dart';
 import 'config.dart';
 import 'models.dart';
 
-/// Connection state, so the UI can distinguish "no buses running" from
-/// "we cannot reach the server" — which look identical on a map otherwise.
-enum LiveStatus { connecting, live, disconnected }
+/// What the app knows about the server, so the UI can distinguish "no buses
+/// running" from "we cannot reach the server" — identical on a map otherwise.
+///
+/// `stale` is its own state because it is genuinely different from being
+/// disconnected: the broker is reachable and handed us data, but that data is
+/// a retained message from a server that is no longer publishing.
+enum LiveStatus { connecting, live, stale, disconnected }
 
 /// Subscribes to the processed bus state the Raspberry Pi publishes.
 ///
@@ -34,7 +38,9 @@ class LiveService {
 
   MqttClient? _client;
   Timer? _reconnect;
+  Timer? _silence;
   bool _disposed = false;
+  bool _serverSaysOffline = false;
   LiveStatus _status = LiveStatus.connecting;
 
   LiveStatus get currentStatus => _status;
@@ -96,8 +102,12 @@ class LiveService {
 
     client.subscribe(Config.topicBuses, MqttQos.atMostOnce);
     client.subscribe(Config.topicConfig, MqttQos.atMostOnce);
+    client.subscribe(Config.topicServer, MqttQos.atLeastOnce);
     client.updates?.listen(_onMessages);
     _setStatus(LiveStatus.live);
+    // Arm it now, not on the first snapshot: a server that publishes nothing
+    // at all must still be noticed.
+    _armSilenceWatchdog();
   }
 
   void _onMessages(List<MqttReceivedMessage<MqttMessage>> events) {
@@ -106,6 +116,17 @@ class LiveService {
       if (payload is! MqttPublishMessage) continue;
       final text =
           MqttPublishPayload.bytesToStringAsString(payload.payload.message);
+
+      // The server's own presence, published retained and via its Last Will.
+      if (event.topic == Config.topicServer) {
+        _serverSaysOffline = text.trim().toLowerCase() == 'offline';
+        if (_serverSaysOffline) {
+          _goStale();
+        } else {
+          _setStatus(LiveStatus.live);
+        }
+        continue;
+      }
 
       Map<String, dynamic> body;
       try {
@@ -140,8 +161,25 @@ class LiveService {
 
     latest = next;
     lastMessageAt = DateTime.now();
-    _setStatus(LiveStatus.live);
+    if (!_serverSaysOffline) _setStatus(LiveStatus.live);
+    _armSilenceWatchdog();
     if (!_busController.isClosed) _busController.add(next);
+  }
+
+  /// A retained snapshot arrives once and then nothing follows if the server
+  /// is dead. Only continuing publishes prove it is alive.
+  void _armSilenceWatchdog() {
+    _silence?.cancel();
+    _silence = Timer(Config.serverSilentAfter, _goStale);
+  }
+
+  /// Keep the positions on the map, but stop vouching for them.
+  void _goStale() {
+    if (_disposed) return;
+    _setStatus(LiveStatus.stale);
+    if (latest.isEmpty) return;
+    latest = {for (final e in latest.entries) e.key: e.value.asStale()};
+    if (!_busController.isClosed) _busController.add(latest);
   }
 
   void _onDisconnected() {
@@ -166,6 +204,7 @@ class LiveService {
   void dispose() {
     _disposed = true;
     _reconnect?.cancel();
+    _silence?.cancel();
     try {
       _client?.disconnect();
     } catch (_) {

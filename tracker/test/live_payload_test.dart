@@ -124,5 +124,28 @@ void main() {
       expect(bus.lat, 11.0);
       expect(bus.lng, 75.0);
     });
+    test('a stale-marked bus is greyed out whatever the payload claimed', () {
+      // The bug this guards: every live topic is retained, so a snapshot
+      // outlives the server that published it. Its `status` says "live"
+      // forever, frozen at publish time. Once the app decides the server has
+      // gone quiet it must stop believing that field.
+      final fresh = BusPosition.fromLive({
+        'id': 'bus1', 'lat': 11.3185, 'lng': 75.9379,
+        'status': 'live', 'age': 0.4, 'eta_s': 62, 'eta_confident': true,
+      })!;
+      expect(fresh.isStale, isFalse, reason: 'claims live, and we believe it');
+
+      final stale = fresh.asStale();
+      expect(stale.isStale, isTrue);
+      expect(stale.serverStatus, 'stale');
+      // An ETA from a dead server is not a confident one.
+      expect(stale.etaConfident, isFalse);
+      // The position itself is kept: the bus was there, we just cannot vouch
+      // for when.
+      expect(stale.lat, fresh.lat);
+      expect(stale.lng, fresh.lng);
+      expect(stale.busId, fresh.busId);
+      expect(stale.routeId, fresh.routeId);
+    });
   });
 }

@@ -118,9 +118,12 @@ class _HomePageState extends State<HomePage> {
   /// timetable still works offline, so the message points there.
   Widget _connectionBar() {
     final connecting = _liveStatus == LiveStatus.connecting;
+    final stale = _liveStatus == LiveStatus.stale;
     return Container(
       width: double.infinity,
-      color: connecting ? Colors.blueGrey.shade600 : Colors.red.shade700,
+      color: connecting
+          ? Colors.blueGrey.shade600
+          : (stale ? Colors.orange.shade800 : Colors.red.shade700),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -131,13 +134,16 @@ class _HomePageState extends State<HomePage> {
             child: connecting
                 ? const CircularProgressIndicator(
                     strokeWidth: 2, color: Colors.white)
-                : const Icon(Icons.cloud_off, size: 13, color: Colors.white),
+                : Icon(stale ? Icons.history : Icons.cloud_off,
+                    size: 13, color: Colors.white),
           ),
           const SizedBox(width: 8),
           Text(
             connecting
                 ? 'Connecting to the bus server…'
-                : 'Server unreachable — showing timetable only',
+                : stale
+                    ? 'Bus server is not running — positions are out of date'
+                    : 'Server unreachable — showing timetable only',
             style: const TextStyle(
                 color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600),
           ),

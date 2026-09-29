@@ -50,6 +50,12 @@ class MqttLink:
         )
         if self.cfg.mqtt_username:
             self.client.username_pw_set(self.cfg.mqtt_username, self.cfg.mqtt_password)
+        # Every live topic is retained, so it outlives this process. Without a
+        # Last Will the app would keep rendering the last snapshot forever,
+        # believing a dead server. The broker publishes this when we drop.
+        self.client.will_set(
+            f"{self.cfg.live_topics}/server", "offline", qos=1, retain=True
+        )
         self.client.reconnect_delay_set(min_delay=1, max_delay=10)
         self.client.on_connect = self._on_connect
         self.client.on_disconnect = self._on_disconnect
@@ -64,6 +70,14 @@ class MqttLink:
         self.client.loop_start()
 
     async def stop(self) -> None:
+        # A clean shutdown does not fire the Last Will, so say it ourselves.
+        try:
+            if self.connected:
+                self.client.publish(
+                    f"{self.cfg.live_topics}/server", "offline", qos=1, retain=True
+                ).wait_for_publish(timeout=2)
+        except Exception:
+            log.debug("could not publish offline status", exc_info=True)
         self.client.loop_stop()
         try:
             self.client.disconnect()
@@ -79,6 +93,7 @@ class MqttLink:
         self.connected = True
         prefix = self.cfg.bus_topics
         client.subscribe([(f"{prefix}/+/gps", 0), (f"{prefix}/+/status", 1)])
+        client.publish(f"{self.cfg.live_topics}/server", "online", qos=1, retain=True)
         log.info(
             "mqtt connected to %s:%d, subscribed under %s/+/",
             self.cfg.mqtt_host,

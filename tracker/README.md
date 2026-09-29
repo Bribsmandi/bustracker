@@ -12,24 +12,48 @@ place, means every phone agrees, and lets a fix ship without an app release.
 
 | Topic | Carries | Retained |
 |---|---|---|
-| `campus/live/buses` | every bus: position, heading, route, status, next stop, ETA | yes |
-| `campus/live/config` | stops, routes, timetable | yes |
-| `campus/live/stop/{id}` | arrival estimates for one stop | yes |
+| `<root>/live/buses` | every bus: position, heading, route, status, next stop, ETA | yes |
+| `<root>/live/config` | stops, routes, timetable | yes |
+| `<root>/live/stop/{id}` | arrival estimates for one stop | yes |
+| `<root>/live/server` | `online`, or `offline` via the Pi's Last Will | yes |
 
 Retained matters: the current state of the fleet lands the moment the app
 subscribes, so there is no "fetch once then subscribe" step and no window where
 the map is blank but the connection is healthy.
 
+### Retained data is not proof of a live server
+
+Retained also means a snapshot **outlives the server that published it**, with
+its `status` and `age` frozen at publish time. A snapshot claiming `live` proves
+nothing on its own — without care the app would happily draw a bus from a server
+that has been off for a week.
+
+Two independent guards:
+
+- `<root>/live/server` carries the Pi's presence, set to `offline` by its Last
+  Will the moment the broker notices it gone.
+- A silence watchdog. The Pi republishes at least every 10 s, so nothing for
+  `serverSilentAfter` (35 s) means it is gone whatever the payload says. This
+  one also covers a Pi that died before the broker noticed.
+
+On either signal the app keeps the positions on the map but greys them out and
+shows an amber banner. The bus was there; we just cannot vouch for when.
+
 ## Configure before building
 
-Set the broker host and the read-only `app` credential in
-[`lib/config.dart`](lib/config.dart). That credential ships inside the app, so
-treat it as public — the broker ACL limits it to subscribing to `campus/live/#`.
-It cannot be used to inject a bus position: those are signed by the hardware and
-verified by the relay before they are ever published.
+Usually nothing. The defaults point at the public broker, which takes no
+credentials, and at the topic root the Pi publishes under.
 
-Set `useWebSocket = true` to reach the broker over WebSocket on port 9001 instead
-of native MQTT on 1883 — useful on networks that only allow 443-style traffic.
+If you change either, they must match the Pi exactly:
+
+```bash
+flutter build apk --release \
+  --dart-define=BUS_MQTT_HOST=broker.emqx.io \
+  --dart-define=BUS_TOPIC_ROOT=cbt7f3c9e21b
+```
+
+Set `useWebSocket = true` to reach the broker over WebSocket instead of native
+MQTT — useful on networks that only allow 443-style traffic.
 
 Flutter **web** is not supported: it would need `mqtt_browser_client`, whose
 `dart:js_interop` dependency cannot be compiled for Android or iOS, so it is
@@ -43,7 +67,7 @@ flutter run
 ```
 
 The bundled `assets/data/` JSON is the offline fallback when the broker is
-unreachable; `campus/live/config` overrides it when connected. Refresh the
+unreachable; `<root>/live/config` overrides it when connected. Refresh the
 bundled copy with `../sync_data.sh`.
 
 ## Tests

@@ -29,6 +29,9 @@ class FakeClient:
     def reconnect_delay_set(self, *a, **k):
         pass
 
+    def will_set(self, *a, **k):
+        pass
+
     def topics(self):
         return [t for t, _, _, _ in self.published]
 
@@ -184,3 +187,33 @@ def test_config_is_published_retained_once(link, processor, cfg):
     assert body["version"] == processor.data.version
     assert len(body["routes"]) == 10
     assert len(body["stops"]) == 8
+
+
+# ------------------------------------------------- server presence (retained)
+
+
+def test_last_will_marks_the_server_offline(processor, planner, cfg):
+    """Every live topic is retained, so a snapshot outlives this process. The
+    Will is what stops the app rendering a dead server's last words forever."""
+    calls = []
+
+    class WillClient(FakeClient):
+        def will_set(self, topic, payload, qos=0, retain=False):
+            calls.append((topic, payload, qos, retain))
+
+    import app.mqtt_link as ml
+
+    real = ml.mqtt.Client
+    ml.mqtt.Client = lambda *a, **k: WillClient()
+    try:
+        MqttLink(processor, planner, cfg=cfg)
+    finally:
+        ml.mqtt.Client = real
+
+    assert calls == [(f"{cfg.live_topics}/server", "offline", 1, True)]
+
+
+def test_server_announces_itself_online_on_connect(link, cfg):
+    link._on_connect(link.client, None, None, type("RC", (), {"is_failure": False})())
+    online = [p for p in link.client.published if p[0] == f"{cfg.live_topics}/server"]
+    assert online == [(f"{cfg.live_topics}/server", "online", 1, True)]
