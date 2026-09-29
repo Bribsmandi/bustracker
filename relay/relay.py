@@ -1,9 +1,15 @@
 #!/usr/bin/env python3
-"""Plain-HTTP relay for the bus tracker hardware.
+"""Plain-HTTP to MQTT relay for the bus tracker hardware.
 
-The ESP32 units cannot do TLS, and Supabase refuses plain HTTP (it 301s to
-HTTPS). This sits in the middle: listens on plain HTTP, verifies the device,
-and forwards to Supabase over HTTPS.
+The ESP32 units cannot do TLS and have no MQTT client, so they do the one thing
+a 2G module is reliably good at: a plain HTTP POST. This sits in the middle,
+verifies the device, and republishes the fix to MQTT, where the Raspberry Pi
+picks it up.
+
+The hardware contract in HARDWARE.md is UNCHANGED. Same URL, same port, same
+body, same signature, same responses. Only what happens after verification is
+different: this used to forward to Supabase over HTTPS, and now it publishes to
+a local MQTT broker.
 
 Because the link to the device is unencrypted, authentication is by HMAC over
 the request body with a per-device secret that is NEVER transmitted. An
@@ -21,10 +27,13 @@ Wire format — one POST, one header:
 
     X-Sig = HMAC_SHA256(device_secret, exact_raw_body_bytes)
 
-Claiming the bus is handled here, not on the device, so the firmware only ever
-has to do this one request type.
+Published as:
 
-Standard library only — nothing to install, nothing to keep patched.
+    campus/bus/bus1/gps     {"seq":1234,"lat":11.3185,"lng":75.9379,"spd":6.4,"hdg":312}
+    campus/bus/bus1/status  "online" | "offline"   (retained)
+
+The device cannot register an MQTT Last Will, so the status topic is driven here
+instead: a watchdog marks a bus offline when it stops POSTing.
 """
 import hashlib
 import hmac
@@ -35,15 +44,14 @@ import socketserver
 import sys
 import threading
 import time
-import urllib.error
-import urllib.request
 from http.server import BaseHTTPRequestHandler
+
+import paho.mqtt.client as mqtt
 
 CONF_DIR = os.environ.get('RELAY_CONF', '/etc/bustracker-relay')
 STATE_DIR = os.environ.get('RELAY_STATE', '/var/lib/bustracker-relay')
 LISTEN_PORT = int(os.environ.get('RELAY_PORT', '8081'))
 MAX_BODY = 2048
-CLAIM_EVERY = 60  # seconds between re-claims per bus
 
 log = logging.getLogger('relay')
 
@@ -56,57 +64,97 @@ def load_json(path, default):
         return default
 
 
-class Upstream:
-    """Talks to Supabase over HTTPS."""
+class MqttUpstream:
+    """Publishes verified fixes to the broker.
+
+    Positions go out at QoS 0: a fix that did not make it is not worth retrying,
+    because by the time it arrived it would be wrong. Status is QoS 1 and
+    retained, so a subscriber that connects late still learns which buses are up.
+    """
 
     def __init__(self, cfg):
-        self.url = cfg['supabase_url'].rstrip('/')
-        self.key = cfg['supabase_key']
-        self._claimed = {}          # bus_id -> last claim time
+        self.host = cfg.get('mqtt_host', '127.0.0.1')
+        self.port = int(cfg.get('mqtt_port', 1883))
+        self.prefix = cfg.get('topic_prefix', 'campus/bus').rstrip('/')
+        self.offline_after = float(cfg.get('offline_after_sec', 30))
+
+        self.client = mqtt.Client(
+            mqtt.CallbackAPIVersion.VERSION2, client_id='bustracker-relay', clean_session=True)
+        if cfg.get('mqtt_username'):
+            self.client.username_pw_set(cfg['mqtt_username'], cfg.get('mqtt_password', ''))
+        self.client.reconnect_delay_set(min_delay=1, max_delay=10)
+        self.client.on_connect = self._on_connect
+        self.client.on_disconnect = self._on_disconnect
+        self.connected = False
+
+        self._last_seen = {}    # bus_id -> monotonic time of last accepted fix
+        self._online = set()    # bus_ids currently advertised as online
         self._lock = threading.Lock()
 
-    def _rpc(self, fn, payload, timeout=10):
-        req = urllib.request.Request(
-            f'{self.url}/rest/v1/rpc/{fn}',
-            data=json.dumps(payload).encode(),
-            headers={
-                'apikey': self.key,
-                'Authorization': f'Bearer {self.key}',
-                'Content-Type': 'application/json',
-            },
-            method='POST')
-        with urllib.request.urlopen(req, timeout=timeout) as r:
-            return json.loads(r.read() or b'{}')
-
-    def ensure_claim(self, bus_id, device_id):
-        """Claim the bus on the device's behalf, at most once a minute."""
-        now = time.time()
-        with self._lock:
-            last = self._claimed.get(bus_id, 0)
-            if now - last < CLAIM_EVERY:
-                return True
+    def start(self):
         try:
-            res = self._rpc('claim_bus',
-                            {'p_bus_id': bus_id, 'p_device_id': device_id})
-            if res.get('ok'):
-                with self._lock:
-                    self._claimed[bus_id] = now
-                return True
-            log.warning('claim refused for %s: %s', bus_id, res.get('reason'))
-            return False
-        except Exception as e:
-            log.warning('claim_bus failed for %s: %s', bus_id, e)
-            return False
+            self.client.connect_async(self.host, self.port, keepalive=30)
+        except Exception:
+            log.exception('mqtt connect failed; paho will retry')
+        self.client.loop_start()
+        threading.Thread(target=self._watchdog, daemon=True).start()
 
-    def publish(self, bus_id, device_id, lat, lng, spd, hdg):
-        return self._rpc('publish_position', {
-            'p_bus_id': bus_id,
-            'p_device_id': device_id,
-            'p_lat': lat,
-            'p_lng': lng,
-            'p_speed': spd,
-            'p_heading': hdg,
-        })
+    def _on_connect(self, client, userdata, flags, reason_code, properties=None):
+        if getattr(reason_code, 'is_failure', False):
+            log.error('mqtt connect refused: %s', reason_code)
+            return
+        self.connected = True
+        log.info('mqtt connected to %s:%d', self.host, self.port)
+        # Re-advertise after a reconnect: a fresh session has no retained state
+        # of ours, and the broker may have been restarted under us.
+        with self._lock:
+            online = list(self._online)
+        for bus_id in online:
+            self._publish_status(bus_id, 'online')
+
+    def _on_disconnect(self, client, userdata, flags, reason_code, properties=None):
+        self.connected = False
+        log.warning('mqtt disconnected: %s', reason_code)
+
+    def _publish_status(self, bus_id, status):
+        self.client.publish(f'{self.prefix}/{bus_id}/status', status, qos=1, retain=True)
+
+    def publish(self, bus_id, counter, lat, lng, spd, hdg):
+        payload = {'seq': counter, 'lat': lat, 'lng': lng}
+        if spd is not None:
+            payload['spd'] = spd
+        if hdg is not None:
+            payload['hdg'] = hdg
+
+        with self._lock:
+            self._last_seen[bus_id] = time.monotonic()
+            first = bus_id not in self._online
+            self._online.add(bus_id)
+        if first:
+            self._publish_status(bus_id, 'online')
+            log.info('bus %s online', bus_id)
+
+        info = self.client.publish(
+            f'{self.prefix}/{bus_id}/gps',
+            json.dumps(payload, separators=(',', ':')),
+            qos=0)
+        return info.rc == mqtt.MQTT_ERR_SUCCESS
+
+    def _watchdog(self):
+        """Stand in for the MQTT Last Will the device cannot register itself."""
+        while True:
+            time.sleep(5)
+            now = time.monotonic()
+            with self._lock:
+                gone = [
+                    b for b in self._online
+                    if now - self._last_seen.get(b, 0) > self.offline_after
+                ]
+                for b in gone:
+                    self._online.discard(b)
+            for b in gone:
+                self._publish_status(b, 'offline')
+                log.info('bus %s offline (no fix for %.0fs)', b, self.offline_after)
 
 
 class Counters:
@@ -164,7 +212,12 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path in ('/health', '/'):
-            self._reply(200, {'ok': True, 'service': 'bustracker-relay'})
+            self._reply(200, {
+                'ok': True,
+                'service': 'bustracker-relay',
+                'mqtt': UP.connected,
+                'buses_online': len(UP._online),
+            })
         else:
             self._reply(404, {'ok': False, 'reason': 'not found'})
 
@@ -219,18 +272,16 @@ class Handler(BaseHTTPRequestHandler):
         spd = float(spd) if spd is not None else None
         hdg = float(hdg) if hdg is not None else None
 
-        UP.ensure_claim(bus_id, device_id)
-        try:
-            res = UP.publish(bus_id, device_id, lat, lng, spd, hdg)
-        except urllib.error.HTTPError as e:
-            log.error('upstream %s: %s', e.code, e.read()[:200])
-            return self._reply(502, {'ok': False, 'reason': 'upstream error'})
-        except Exception as e:
-            log.error('upstream failed: %s', e)
+        if not UP.connected:
+            # Nothing to gain from queueing: by the time the broker is back this
+            # fix is history, and the device is already sending a newer one.
+            log.warning('dropping fix from %s: broker unreachable', bus_id)
             return self._reply(502, {'ok': False, 'reason': 'upstream down'})
 
+        ok = UP.publish(bus_id, counter, lat, lng, spd, hdg)
+
         # Deliberately terse: every byte here is billed cellular data.
-        return self._reply(200, {'ok': bool(res.get('ok'))})
+        return self._reply(200, {'ok': ok})
 
 
 class Server(socketserver.ThreadingTCPServer):
@@ -251,9 +302,10 @@ def main():
         sys.exit(f'missing {CONF_DIR}/devices.json')
 
     global UP, DEVICES, COUNTERS
-    UP = Upstream(cfg)
+    UP = MqttUpstream(cfg)
     DEVICES = devices
     COUNTERS = Counters(os.path.join(STATE_DIR, 'counters.json'))
+    UP.start()
 
     log.info('relay listening on 0.0.0.0:%d, %d device(s) configured',
              LISTEN_PORT, len(devices))

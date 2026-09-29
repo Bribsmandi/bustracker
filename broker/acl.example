@@ -1,0 +1,20 @@
+# /etc/mosquitto/acl
+#
+# Three roles. Each can touch only what its job requires, so a leaked app
+# credential cannot be used to inject bus positions.
+
+# The relay verifies device signatures and publishes raw fixes.
+user relay
+topic write campus/bus/+/gps
+topic write campus/bus/+/status
+
+# The Pi reads raw fixes and publishes the processed snapshot back.
+user processor
+topic read campus/bus/+/gps
+topic read campus/bus/+/status
+topic write campus/live/#
+
+# The mobile app only ever reads the processed snapshot. It never sees raw
+# fixes and cannot publish anything.
+user app
+topic read campus/live/#
