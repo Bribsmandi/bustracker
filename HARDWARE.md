@@ -71,7 +71,11 @@ CONNECT packet — the broker publishes it for you when the connection dies.
 ## 3. The message
 
 ```
-d0d9d4c131e5b25c618be70720948ae790b564804543d6f8a743a88716567e39.{"b":"bus1","d":"esp32-01","c":1234,"lat":11.3185,"lng":75.9379,"spd":6.4,"hdg":312}
+d0d9d4c131e5b25c618be70720948ae790b564804543d6f8a7
+43a88716567e39.{"b":"bus1","d":"esp32-01","c":1234,
+"lat":11.3185,"lng":75.9379,"spd":6.4,"hdg":312}
+
+(one line on the wire -- wrapped here only to fit the page)
 ```
 
 That is: **64 hex characters, a dot, then the exact JSON bytes you signed.**
@@ -114,8 +118,8 @@ check them in order:
 
 ## 5. Per-unit identity
 
-Each unit is flashed with its own id, bus and secret. **A unit gets only its
-own secret.** These are issued separately — they are not in this document.
+Each unit is flashed with its own id, bus and secret. **A unit gets only its own secret.**
+These are issued separately — they are not in this document.
 
 | Device id | Bus | Secret |
 |---|---|---|
@@ -145,13 +149,14 @@ order or an extra space changes the hash completely.
 
 The secret is never sent. The broker is public, so anyone can read bus
 positions and anyone can publish to these topics — but without the secret they
-cannot produce a message the server will accept. **This signature is the only
-thing protecting the system.** Treat the secret accordingly.
+cannot produce a message the server will accept.
+**This signature is the only thing protecting the system.**
+Treat the secret accordingly.
 
 ### The counter
 
-`c` must be strictly greater than the previous accepted value, forever, per
-device. It stops someone from recording a valid request and replaying it later.
+The counter `c` must be strictly greater than the previous accepted value,
+forever, per device. It stops someone from recording a valid request and replaying it later.
 
 Store it in NVS and increment on every send. **Persist across reboot** — if it
 resets to 0 the server rejects everything as a replay until it climbs past the
@@ -186,8 +191,7 @@ practical on 2G.
 
 Not arbitrary. Stop-arrival detection needs at least two fixes inside a 40 m
 radius; at ~25 km/h a bus crosses that in ~11 s. At 10 s intervals you get one
-fix and the app starts missing arrivals. **Do not go slower than 5 s without
-telling us.**
+fix and the app starts missing arrivals. **Do not go slower than 5 s without telling us.**
 
 ### 7.2 Keep one connection open
 
@@ -229,8 +233,8 @@ LiPo so the unit can finish its current request and shut down cleanly.
 
 ### 7.6 Module choice
 
-Since there is no TLS, almost any module works — **SIM900A and SIM800L are fine
-here**, as are SIM7600 / A7670 / SIM7670. Requirements: a TCP client that can
+Since there is no TLS, almost any module works.
+**SIM900A and SIM800L are fine here**, as are SIM7600 / A7670 / SIM7670. Requirements: a TCP client that can
 hold an open socket, and ~1 KB buffers. No modem-side MQTT or TLS support is
 needed: the MQTT client lives on the ESP32.
 
@@ -264,7 +268,8 @@ Reference message (replace the secret, then compare against your firmware's
 bytes — this is the fastest way to find a signing bug):
 
 ```sh
-BODY='{"b":"bus1","d":"esp32-01","c":1,"lat":11.3185,"lng":75.9379,"spd":6.4,"hdg":312}'
+BODY='{"b":"bus1","d":"esp32-01","c":1,"lat":11.3185,'
+BODY=$BODY'"lng":75.9379,"spd":6.4,"hdg":312}'
 SIG=$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac "YOUR_SECRET_HERE" -hex | awk '{print $2}')
 mosquitto_pub -h broker.emqx.io -t 'cbt7f3c9e21b/bus/bus1/gps' -m "$SIG.$BODY"
 ```

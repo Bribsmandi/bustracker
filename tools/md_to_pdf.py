@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Render HARDWARE.md as a printable A4 handout.
+"""Render a Markdown doc as a printable A4 handout.
 
 A small purpose-built Markdown subset renderer (headings, tables, fenced code,
 lists, bold/inline code) rather than a general converter, so the hardware spec
@@ -118,6 +118,10 @@ def code_block(lines):
 
 def convert(md_path, pdf_path):
     lines = open(md_path).read().split('\n')
+    # Title the PDF after the document's own H1 rather than a fixed string, so
+    # the footer is right whichever doc is being rendered.
+    doc_title = next((ln[2:].strip() for ln in lines if ln.startswith('# ')),
+                     'Campus Bus Tracker')
     flow = []
     i = 0
     in_code = False
@@ -181,8 +185,7 @@ def convert(md_path, pdf_path):
         canvas.saveState()
         canvas.setFont('Helvetica', 7.5)
         canvas.setFillColor(MUTED)
-        canvas.drawString(20 * mm, 12 * mm,
-                          'Campus Bus Tracker — hardware integration spec')
+        canvas.drawString(20 * mm, 12 * mm, f'Campus Bus Tracker — {doc_title}')
         canvas.drawRightString(190 * mm, 12 * mm, f'Page {doc.page}')
         canvas.setStrokeColor(RULE)
         canvas.setLineWidth(0.4)
@@ -192,7 +195,7 @@ def convert(md_path, pdf_path):
     doc = BaseDocTemplate(pdf_path, pagesize=A4,
                           leftMargin=20 * mm, rightMargin=20 * mm,
                           topMargin=18 * mm, bottomMargin=20 * mm,
-                          title='Bus tracker — hardware integration spec',
+                          title=doc_title,
                           author='Campus Bus Tracker')
     frame = Frame(doc.leftMargin, doc.bottomMargin, doc.width, doc.height,
                   id='body')
