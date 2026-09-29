@@ -51,7 +51,7 @@ which route the bus is on, whether it is parked, and which way it is going.
 | Username / password | none |
 | Clean session | yes |
 | Keepalive | 60 s (send `PINGREQ`) |
-| Client id | unique per unit, e.g. `cbt-esp32-01` |
+| Client id | `cbt7f3c9e21b-<deviceid>`, e.g. `cbt7f3c9e21b-esp32-01` |
 
 `<ROOT>` below is **`cbt7f3c9e21b`** — a fixed, unguessable prefix so the
 buses do not collide with the thousands of other users of this public broker.

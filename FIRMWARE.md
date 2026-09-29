@@ -49,11 +49,13 @@ the SIM900A has no TLS, and every managed free tier requires it.
 | Username / password | none |
 | Clean session | yes |
 | Keepalive | 60 seconds |
-| Client id | unique per unit, e.g. `cbt-esp32-01` |
+| Client id | `cbt7f3c9e21b-<deviceid>`, e.g. `cbt7f3c9e21b-esp32-01` |
 
 The topic root is **`cbt7f3c9e21b`**. It is deliberately meaningless: this is a
 shared public broker with thousands of users, and a name like `campus/bus` would
 collide with someone else's traffic. It must match the server exactly.
+
+The client id is prefixed with the same root for the same reason — see §9.
 
 | Topic | Payload | QoS | Retain |
 |---|---|---|---|
@@ -365,6 +367,21 @@ buffer and flush on reconnect. That is now wrong. A position carries no
 timestamp — the server stamps arrival time itself — so a fix flushed three
 minutes later is indistinguishable from a live one and teleports the bus across
 the map. Drop what you cannot send.
+
+**Do not use a short or obvious client id.** MQTT requires client ids to be
+unique per broker, and **a second client presenting the same one disconnects the first.**
+The two then fight in a reconnect loop, each kicking the other off. The symptom
+is a unit that connects and drops every few seconds for no reason visible in
+your code.
+
+On a private broker `esp32-01` would be fine. On a shared public one it is not:
+somebody else will eventually pick the same string. Prefixing with the topic
+root, which is unguessable, makes a collision effectively impossible:
+`cbt7f3c9e21b-esp32-01`.
+
+This is not hypothetical. The server had a fixed id of `bustracker-processor`
+and hit exactly this, logging "Unspecified error" disconnects seven times in
+thirty seconds until it was namespaced.
 
 **Do not reconnect per fix.** MQTT is a session. Connect once and hold it,
 sending PINGREQ to keep it alive. Reconnecting every 5 seconds multiplies data
