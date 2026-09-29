@@ -1,0 +1,30 @@
+# /etc/cloudflared/config.yml
+#
+# cloudflared dials out to Cloudflare, so nothing has to be opened on the campus
+# network and the Pi needs no public IP. Create the tunnel first:
+#
+#   cloudflared tunnel login
+#   cloudflared tunnel create campus-bus
+#   cloudflared tunnel route dns campus-bus api.example.org
+#   cloudflared tunnel route dns campus-bus mqtt.example.org
+#
+# A named tunnel is required: quick tunnels get a new hostname every restart.
+
+tunnel: campus-bus
+credentials-file: /etc/cloudflared/campus-bus.json
+
+ingress:
+  # Student app: REST and the live WebSocket.
+  - hostname: api.example.org
+    service: http://localhost:8000
+    originRequest:
+      noTLSVerify: true
+      # The live feed is a long-lived WebSocket; do not let the edge time it out
+      # as if it were an idle HTTP request.
+      connectTimeout: 30s
+
+  # Buses: MQTT over WebSocket on 443.
+  - hostname: mqtt.example.org
+    service: http://localhost:9001
+
+  - service: http_status:404

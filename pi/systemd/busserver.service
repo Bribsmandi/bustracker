@@ -1,0 +1,26 @@
+[Unit]
+Description=Campus Bus Tracker processor and API
+After=network-online.target mosquitto.service
+Wants=network-online.target
+Requires=mosquitto.service
+
+[Service]
+Type=exec
+User=bustracker
+Group=bustracker
+WorkingDirectory=/opt/bustracker/pi/server
+EnvironmentFile=/etc/bustracker/server.env
+ExecStart=/opt/bustracker/pi/server/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --no-access-log
+Restart=always
+RestartSec=2
+
+# The service needs its database, its config and nothing else.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/bustracker
+StateDirectory=bustracker
+
+[Install]
+WantedBy=multi-user.target

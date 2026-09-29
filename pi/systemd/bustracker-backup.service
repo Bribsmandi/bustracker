@@ -1,0 +1,8 @@
+[Unit]
+Description=Back up the Campus Bus Tracker database
+After=busserver.service
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/opt/bustracker/pi/scripts/backup.sh
