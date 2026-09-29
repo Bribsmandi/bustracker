@@ -147,14 +147,38 @@ class ScheduleEntry {
   }
 }
 
-/// A live position row from Supabase.
+/// One bus as the Raspberry Pi has already worked it out.
+///
+/// Everything here arrives pre-computed: the Pi validated and smoothed the raw
+/// GPS, matched it to a route, and derived the next stop and ETA. The app renders
+/// this rather than recalculating it, so every phone agrees and the maths lives
+/// in one place that can be fixed without an app release.
 class BusPosition {
   final String busId;
   final double lat;
   final double lng;
   final double? speed; // m/s
-  final double? heading; // degrees from GPS (may be null)
+  final double? heading; // degrees, route-matched where possible
   final String? routeId;
+
+  /// Server-side status: `live`, `delayed`, `stale` or `offline`.
+  final String? serverStatus;
+
+  /// Seconds since the server last accepted a fix from this bus.
+  final double? ageSec;
+
+  /// Fraction of the current route covered, 0..1.
+  final double? progress;
+
+  /// The next stop on the route, and when the server expects to reach it.
+  final String? nextStop;
+  final int? etaSec;
+
+  /// False when the ETA is a timetable guess rather than a tracked estimate.
+  final bool etaConfident;
+
+  /// The stop the bus is standing at right now, if any.
+  final String? atStop;
 
   /// Endpoints the driver selected, and where the bus is in that trip.
   /// The publisher flips these itself when the bus turns around, so the tracker
@@ -177,6 +201,13 @@ class BusPosition {
     this.speed,
     this.heading,
     this.routeId,
+    this.serverStatus,
+    this.ageSec,
+    this.progress,
+    this.nextStop,
+    this.etaSec,
+    this.etaConfident = false,
+    this.atStop,
     this.originId,
     this.destinationId,
     this.journeyState,
@@ -186,23 +217,58 @@ class BusPosition {
 
   LatLng get pos => LatLng(lat, lng);
 
-  Duration get age => DateTime.now().toUtc().difference(updatedAt.toUtc());
-  bool get isStale => age > Config.staleAfter;
+  /// Prefer the server's own measurement: it knows when it last heard from the
+  /// bus, whereas a clock difference between phone and server would distort a
+  /// locally computed age.
+  Duration get age => ageSec != null
+      ? Duration(milliseconds: (ageSec! * 1000).round())
+      : DateTime.now().toUtc().difference(updatedAt.toUtc());
+
+  /// Greyed out on the map. The server decides this where it can; the duration
+  /// check is the fallback when we are reading a simulated or legacy position.
+  bool get isStale => serverStatus != null
+      ? (serverStatus == 'stale' || serverStatus == 'offline')
+      : age > Config.staleAfter;
+
+  /// Shown with a "last seen" label: still trusted, but a fix has been missed.
+  bool get isDelayed => serverStatus == 'delayed';
+
   bool get isMoving => (speed ?? 0) >= Config.stoppedSpeedMps;
 
-  /// True when the driver's app says the bus is sitting at its terminal.
+  /// True when the bus is sitting at a terminal waiting to depart.
   bool get isParked => journeyState == 'parked';
 
-  factory BusPosition.fromJson(Map<String, dynamic> j) => BusPosition(
-        busId: j['bus_id'] as String,
-        lat: (j['lat'] as num).toDouble(),
-        lng: (j['lng'] as num).toDouble(),
-        speed: (j['speed'] as num?)?.toDouble(),
-        heading: (j['heading'] as num?)?.toDouble(),
-        routeId: j['route_id'] as String?,
-        originId: j['origin_id'] as String?,
-        destinationId: j['destination_id'] as String?,
-        journeyState: j['journey_state'] as String?,
-        updatedAt: DateTime.parse(j['updated_at'] as String).toUtc(),
-      );
+  /// Parses one entry of the Pi's `campus/live/buses` snapshot.
+  ///
+  /// Returns null for a bus the server has never had a fix from: it has no
+  /// coordinates, so there is nothing to place on the map.
+  static BusPosition? fromLive(Map<String, dynamic> j) {
+    final lat = (j['lat'] as num?)?.toDouble();
+    final lng = (j['lng'] as num?)?.toDouble();
+    final id = j['id'] as String?;
+    if (id == null || lat == null || lng == null) return null;
+
+    final age = (j['age'] as num?)?.toDouble();
+    return BusPosition(
+      busId: id,
+      lat: lat,
+      lng: lng,
+      speed: (j['speed'] as num?)?.toDouble(),
+      heading: (j['heading'] as num?)?.toDouble(),
+      routeId: j['route'] as String?,
+      serverStatus: j['status'] as String?,
+      ageSec: age,
+      progress: (j['progress'] as num?)?.toDouble(),
+      nextStop: j['next_stop'] as String?,
+      etaSec: (j['eta_s'] as num?)?.round(),
+      etaConfident: (j['eta_confident'] ?? false) as bool,
+      atStop: j['at_stop'] as String?,
+      originId: j['origin'] as String?,
+      destinationId: j['destination'] as String?,
+      journeyState: j['journey_state'] as String?,
+      updatedAt: DateTime.now()
+          .toUtc()
+          .subtract(Duration(milliseconds: ((age ?? 0) * 1000).round())),
+    );
+  }
 }

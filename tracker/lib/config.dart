@@ -1,15 +1,47 @@
 /// App-wide configuration for the campus bus tracker.
 class Config {
-  static const String supabaseUrl = 'https://hlnelrsletdunynfiaxv.supabase.co';
-  static const String supabaseAnonKey =
-      'sb_publishable_tOLEHKUH5RpLqUL0NQ64HQ_4JBVplhr';
+  // ---------------------------------------------------------------- transport
+
+  /// The MQTT broker. It runs on the public VM rather than the Raspberry Pi,
+  /// because the Pi sits behind campus NAT and cannot be connected to from
+  /// outside. The Pi publishes to this broker; this app subscribes.
+  static const String mqttHost = 'recverse.ibinujaleel.dev';
+  static const int mqttPort = 1883;
+
+  /// Port for MQTT-over-WebSocket, used by Flutter web and by mobile networks
+  /// that only allow 443.
+  static const int mqttWsPort = 9001;
+  static const bool useWebSocket = false;
+
+  /// Read-only credential. It ships inside the app, so treat it as public: the
+  /// broker ACL lets this user subscribe to `campus/live/#` and nothing else.
+  /// Bus positions cannot be forged with it — those are signed by the hardware
+  /// and verified by the relay before they are ever published.
+  static const String mqttUsername = 'app';
+  static const String mqttPassword = 'CHANGE_ME';
+
+  /// Topics published by the Pi. All retained, so the current state arrives the
+  /// moment we subscribe.
+  static const String topicBuses = 'campus/live/buses';
+  static const String topicConfig = 'campus/live/config';
+  static String topicStop(String stopId) => 'campus/live/stop/$stopId';
+
+  /// REST base URL, for the things pub/sub is the wrong shape for: trip
+  /// planning and analytics. Empty disables them and the app falls back to its
+  /// own on-device planner.
+  static const String apiBaseUrl = '';
+
+  /// How long to wait before retrying a dropped broker connection.
+  static const Duration reconnectDelay = Duration(seconds: 3);
+
+  // ------------------------------------------------------------------ tuning
 
   /// A bus whose latest position is older than this is treated as offline.
-  static const Duration staleAfter = Duration(minutes: 5);
-
-  /// How often to re-fetch every bus position from the server, independently of
-  /// the realtime subscription. Guards against a silently dropped socket.
-  static const Duration resyncInterval = Duration(seconds: 30);
+  ///
+  /// The server sends an authoritative `status` with every snapshot, so this is
+  /// only a fallback for when we have not heard from the server at all. It is
+  /// sized for the hardware's 5 s reporting interval.
+  static const Duration staleAfter = Duration(seconds: 120);
 
   /// Below this GPS speed (m/s) the bus is considered stopped/waiting, and we
   /// fall back to the printed timetable + average speed for ETAs.

@@ -1,63 +1,40 @@
-/// Supabase connection details and tuning for the campus bus publisher.
+/// Configuration for the bus GPS publisher.
 ///
-/// The publishable ("anon") key is safe to ship in a client app — Row Level
-/// Security plus the claim/publish functions control what it can do.
+/// This app is a stand-in for the ESP32 units: it speaks the exact wire protocol
+/// in HARDWARE.md — a signed plain-HTTP POST to the relay — so the whole chain
+/// (relay → MQTT → Raspberry Pi → tracker app) can be exercised with a phone in
+/// a real bus before the hardware is fitted, and used to record real GPS traces.
+///
+/// It is a development and field-test tool, not something students install.
 class Config {
-  static const String supabaseUrl = 'https://hlnelrsletdunynfiaxv.supabase.co';
-  static const String supabaseAnonKey =
-      'sb_publishable_tOLEHKUH5RpLqUL0NQ64HQ_4JBVplhr';
+  /// The relay endpoint. Unchanged from the old design: the relay still accepts
+  /// plain HTTP and still verifies the signature. Only its upstream changed.
+  static const String relayUrl = 'http://recverse.ibinujaleel.dev:8081/p';
+  static const String healthUrl = 'http://recverse.ibinujaleel.dev:8081/health';
 
-  /// How often to push the latest position even when the bus is stationary,
-  /// so the tracker never wrongly marks a parked-but-running bus as offline.
-  static const Duration heartbeat = Duration(seconds: 12);
-
-  /// Periodic self-check: re-assert our claim on the bus and re-evaluate the
-  /// journey state, so a phone that briefly lost network recovers on its own.
-  static const Duration recheckInterval = Duration(seconds: 30);
-
-  /// A bus within this many metres of a stop is considered "at" that stop.
-  /// Used to log arrival/departure analytics events.
-  static const double atStopRadiusM = 40.0;
+  /// Device identity, issued per unit and registered in the relay's
+  /// devices.json. The relay binds a device to exactly one bus, so publishing as
+  /// any other bus is refused with "wrong bus".
+  ///
+  /// Set these before building. The secret never leaves the device — it signs
+  /// the body and is never transmitted.
+  static const String deviceId = 'esp32-01';
+  static const String deviceSecret = 'SET_BEFORE_BUILDING';
 
   /// How often to sample and publish GPS.
   ///
-  /// Derived, not chosen: the bus must record at least two fixes inside the
-  /// [arriveRadiusM] circle or it can pass through a terminal without ever
-  /// registering as parked. It is inside that circle for an 80 m chord, so the
-  /// interval must satisfy  T <= 40 / speed.  At 5 s that holds up to
-  /// 28.8 km/h — comfortably above campus bus speeds — and yields ~2.3 fixes
-  /// per arrival at a typical 25 km/h.
-  ///
-  /// Going to 6 s drops below two fixes per arrival; going to 3 s costs 66%
-  /// more data and battery for no detection benefit.
+  /// Derived, not chosen (HARDWARE.md §6.1): the bus must record at least two
+  /// fixes inside the server's 40 m stop radius or it can pass through without
+  /// registering an arrival. It is inside that circle for an 80 m chord, so the
+  /// interval must satisfy T <= 40 / speed. At 5 s that holds up to 28.8 km/h —
+  /// comfortably above campus bus speeds.
   static const Duration fixInterval = Duration(seconds: 5);
 
-  // -------------------------------------------------------- parked / departed
-  //
-  // Both transitions need two independent signals to agree. A stationary phone
-  // drifts 5-15 m (worse beside buildings), so distance alone produces false
-  // departures; Android's fused speed is unreliable below walking pace, so
-  // speed alone produces false parks. Requiring both kills each other's noise.
+  /// Keep publishing while the bus is stationary, so the server sees it as
+  /// parked-and-running rather than offline.
+  static const Duration heartbeat = Duration(seconds: 5);
 
-  /// A bus this close to its destination terminal is a candidate for parking.
-  static const double arriveRadiusM = 40.0;
-
-  /// ...and it must also have stayed within [parkedMaxDriftM] over the last
-  /// [parkedWindow] before we call it parked.
-  static const Duration parkedWindow = Duration(seconds: 30);
-  static const double parkedMaxDriftM = 15.0;
-
-  /// Departure: the bus must be this far from where it parked...
-  static const double departMinDistanceM = 25.0;
-
-  /// ...AND be moving at least this fast...
-  static const double departMinSpeedMps = 2.0;
-
-  /// ...for this many consecutive fixes (~10 s at [fixInterval]).
-  static const int departMinConsecutiveFixes = 3;
-
-  /// For terminals that define an explicit return-trigger coordinate in
-  /// stops.json (`triggerLat`/`triggerLng`), crossing within this distance of
-  /// that point also starts the return trip.
-  static const double returnTriggerRadiusM = 20.0;
+  /// Network timeout for one POST. Short: a fix that took longer than the
+  /// interval to send is already stale, and the next one is more useful.
+  static const Duration requestTimeout = Duration(seconds: 10);
 }

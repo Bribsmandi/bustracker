@@ -3,12 +3,12 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'app_data.dart';
 import 'basemap.dart';
 import 'bus_marker.dart';
 import 'config.dart';
+import 'live_service.dart';
 import 'simulator.dart';
 import 'leg_progress.dart';
 import 'models.dart';
@@ -16,10 +16,6 @@ import 'tracking.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Supabase.initialize(
-    url: Config.supabaseUrl,
-    publishableKey: Config.supabaseAnonKey,
-  );
   runApp(const TrackerApp());
 }
 
@@ -44,16 +40,17 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
-  final SupabaseClient _supabase = Supabase.instance.client;
+  final LiveService _liveService = LiveService();
   final MapController _mapController = MapController();
 
   AppData? _data;
   Tracker? _tracker;
   Basemap? _basemap;
   final Map<String, BusPosition> _live = {};
-  StreamSubscription<List<Map<String, dynamic>>>? _sub;
+  StreamSubscription<Map<String, BusPosition>>? _sub;
+  StreamSubscription<LiveStatus>? _statusSub;
+  LiveStatus _liveStatus = LiveStatus.connecting;
   Timer? _ticker;
-  Timer? _resync;
 
   /// Debug: drive six fake buses locally instead of reading the backend.
   BusSimulator? _sim;
@@ -74,9 +71,10 @@ class _HomePageState extends State<HomePage> {
   @override
   void dispose() {
     _sub?.cancel();
+    _statusSub?.cancel();
     _ticker?.cancel();
-    _resync?.cancel();
     _sim?.stop();
+    _liveService.dispose();
     super.dispose();
   }
 
@@ -89,29 +87,63 @@ class _HomePageState extends State<HomePage> {
       _basemap = basemap;
     });
 
-    // Live positions via Supabase realtime.
-    _sub = _supabase
-        .from('bus_positions')
-        .stream(primaryKey: ['bus_id']).listen((rows) {
+    // Live positions over MQTT. Every topic is retained, so the current state
+    // of the fleet arrives right after subscribing — no separate initial fetch,
+    // and no window where the map is blank but the connection is healthy.
+    _sub = _liveService.buses.listen((buses) {
       if (_simulating) return; // simulator owns _live while it is running
-      _live.clear();
-      for (final r in rows) {
-        final bp = BusPosition.fromJson(r);
-        _live[bp.busId] = bp;
-      }
+      _live
+        ..clear()
+        ..addAll(buses);
       if (mounted) setState(() {});
     });
 
-    // Re-evaluate staleness + ETAs on a timer even without new data.
-    _ticker = Timer.periodic(const Duration(seconds: 10), (_) {
+    _statusSub = _liveService.status.listen((s) {
+      if (mounted) setState(() => _liveStatus = s);
+    });
+
+    // Re-evaluate staleness + ETAs on a timer even without new data, so a bus
+    // that stops reporting visibly ages instead of sitting there looking live.
+    _ticker = Timer.periodic(const Duration(seconds: 5), (_) {
       if (mounted) setState(() {});
     });
 
-    // Safety net: the realtime socket can drop silently (backgrounded app,
-    // flaky campus wifi). Re-fetch periodically so a dropped subscription
-    // shows up as stale-then-recovered rather than frozen-forever data.
-    _resync = Timer.periodic(Config.resyncInterval, (_) => _refetch());
-    await _refetch();
+    await _liveService.start();
+  }
+
+  /// Shown whenever we are not receiving live data.
+  ///
+  /// Worth its own banner because an empty map is ambiguous: it looks the same
+  /// whether no buses are running or the app cannot reach the server. The
+  /// timetable still works offline, so the message points there.
+  Widget _connectionBar() {
+    final connecting = _liveStatus == LiveStatus.connecting;
+    return Container(
+      width: double.infinity,
+      color: connecting ? Colors.blueGrey.shade600 : Colors.red.shade700,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          SizedBox(
+            width: 13,
+            height: 13,
+            child: connecting
+                ? const CircularProgressIndicator(
+                    strokeWidth: 2, color: Colors.white)
+                : const Icon(Icons.cloud_off, size: 13, color: Colors.white),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            connecting
+                ? 'Connecting to the bus server…'
+                : 'Server unreachable — showing timetable only',
+            style: const TextStyle(
+                color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600),
+          ),
+        ],
+      ),
+    );
   }
 
   /// Amber banner plus the speed control, shown only while simulating.
@@ -180,8 +212,10 @@ class _HomePageState extends State<HomePage> {
     if (_simulating) {
       _sim?.stop();
       _sim = null;
-      _live.clear();
-      _refetch(); // fall back to whatever is really out there
+      _live
+        ..clear()
+        // Fall back to whatever is really out there.
+        ..addAll(_liveService.latest);
       setState(() {});
       return;
     }
@@ -196,28 +230,6 @@ class _HomePageState extends State<HomePage> {
         setState(() {});
       });
     setState(() {});
-  }
-
-  /// Pull the full position table once, outside the realtime stream.
-  Future<void> _refetch() async {
-    if (_simulating) return; // never let live data overwrite the simulation
-    try {
-      final rows = await _supabase.from('bus_positions').select();
-      for (final r in rows) {
-        final bp = BusPosition.fromJson(r);
-        // Never let a slow poll response overwrite fresher realtime data.
-        final existing = _live[bp.busId];
-        if (existing == null || bp.updatedAt.isAfter(existing.updatedAt)) {
-          _live[bp.busId] = bp;
-        }
-      }
-      // Drop buses that no longer have a row at all (driver released the bus).
-      final ids = rows.map((r) => r['bus_id'] as String).toSet();
-      _live.removeWhere((k, _) => !ids.contains(k));
-      if (mounted) setState(() {});
-    } catch (_) {
-      // Offline — the staleness rule will grey the buses out on its own.
-    }
   }
 
   /// Where the campus actually is — used to frame the opening view.
@@ -277,6 +289,7 @@ class _HomePageState extends State<HomePage> {
       body: Column(
         children: [
           if (_simulating) _simulationBar(),
+          if (!_simulating && _liveStatus != LiveStatus.live) _connectionBar(),
           Expanded(child: _buildMap(data, tracker, busesOnMap, plan?.plan)),
           _buildControls(data, plan),
         ],
