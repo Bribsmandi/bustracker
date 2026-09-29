@@ -23,6 +23,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import secrets
 import time
 
 import paho.mqtt.client as mqtt
@@ -45,8 +46,14 @@ class MqttLink:
         self.connected = False
         self.published = 0
 
+        # A fixed client id is fatal on a shared public broker: MQTT requires
+        # ids to be unique, and a second client using the same one disconnects
+        # the first. The two then fight in a reconnect loop. Namespacing by the
+        # topic root keeps strangers out; the random suffix survives our own
+        # restart racing the broker's cleanup of the previous session.
+        client_id = f"{self.cfg.topic_root}-processor-{secrets.token_hex(3)}"
         self.client = mqtt.Client(
-            mqtt.CallbackAPIVersion.VERSION2, client_id="bustracker-processor", clean_session=True
+            mqtt.CallbackAPIVersion.VERSION2, client_id=client_id, clean_session=True
         )
         if self.cfg.mqtt_username:
             self.client.username_pw_set(self.cfg.mqtt_username, self.cfg.mqtt_password)
