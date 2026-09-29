@@ -1,3 +1,9 @@
 
 # MCP config contains secret token
 .mcp.json
+
+# Python venv for the Pi server
+pi/server/.venv/
+__pycache__/
+*.pyc
+*.egg-info/
