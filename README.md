@@ -52,7 +52,9 @@ relay/           Unused by this design. Kept as a fallback if the buses ever
 broker/          go back to HTTP and a self-hosted broker.
 tracker/         Flutter app: the student live map + trip planner (MQTT)
 publisher/       Flutter app: a phone standing in for a tracker unit (test tool)
-HARDWARE.md      The device contract — still accurate, do not change lightly
+HARDWARE.md      The device contract: what a unit must send
+FIRMWARE.md      How to implement it on the ESP32, with working C
+HARDWARE_BUILD.md  Power, antennas, SIM, provisioning and fitting
 ```
 
 ## Setup

@@ -2,6 +2,9 @@
 
 For the ESP32 + GPS + cellular tracker units fitted to the six campus buses.
 
+This is the contract. `FIRMWARE.md` is how to implement it; `HARDWARE_BUILD.md`
+covers power, antennas, SIM and fitting.
+
 **Plain MQTT over TCP. No TLS, no certificates, no HTTP.** The unit publishes to
 a public MQTT broker. Because the link is unencrypted and the broker is open,
 each unit signs its data with a secret that is never transmitted — an

@@ -6,6 +6,10 @@ Read `HARDWARE.md` for the contract this must satisfy. This document is the
 implementation guide: what changes, the exact bytes on the wire, working code
 for the hard parts, and how to prove it works.
 
+`HARDWARE_BUILD.md` covers everything that is not code — power, antennas, SIM,
+provisioning and fitting. If a unit resets when it transmits, or gets no GPS
+fix in a bus, the answer is there rather than here.
+
 ## 1. What is changing, and what is not
 
 The unit used to POST a signed JSON body over HTTP to a relay server. That
