@@ -30,6 +30,21 @@ delivering.
 
 ## Setup
 
+One command, once the repository is cloned to `/opt/bustracker`:
+
+```bash
+sudo /opt/bustracker/broker/deploy_vm.sh
+```
+
+It installs Mosquitto and the relay, creates the three credentials, opens the
+local firewall, verifies the relay reached the broker, and prints the settings
+to paste into the Pi and the app builds. Safe to re-run: existing credentials,
+`devices.json` and a configured `config.json` are left alone, and the previous
+`relay.py` is backed up before being replaced.
+
+<details>
+<summary>Manual steps, if you prefer</summary>
+
 ```bash
 sudo apt install mosquitto mosquitto-clients
 sudo cp campus.conf /etc/mosquitto/conf.d/campus.conf
@@ -53,6 +68,8 @@ Open the ports on the VM firewall / cloud security group:
 sudo ufw allow 1883/tcp   # Pi, and native-MQTT mobile clients
 sudo ufw allow 9001/tcp   # WebSocket clients
 ```
+
+</details>
 
 Put the `relay` credential into `/etc/bustracker-relay/config.json`, and the
 `processor` one into the Pi's `/etc/bustracker/server.env`.

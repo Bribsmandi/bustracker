@@ -58,6 +58,22 @@ its behalf when a bus stops POSTing.
 
 ## Install
 
+One command, once the repository is cloned to `/opt/bustracker`:
+
+```bash
+sudo /opt/bustracker/pi/scripts/deploy_pi.sh
+```
+
+It installs the dependencies, builds the venv, **runs the test suite and stops
+if it fails**, installs the services and verifies the broker connection. Re-run
+it to upgrade; it keeps your `server.env` and never touches the database.
+
+Set `BUS_MQTT_HOST` and `BUS_MQTT_PASSWORD` in `/etc/bustracker/server.env`
+first — the script stops and tells you if they are still placeholders.
+
+<details>
+<summary>Manual steps, if you prefer</summary>
+
 ```bash
 sudo useradd -r -s /usr/sbin/nologin bustracker
 sudo mkdir -p /opt/bustracker /var/lib/bustracker /etc/bustracker
@@ -76,6 +92,8 @@ sudo cp /opt/bustracker/pi/systemd/bustracker-backup.* /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now busserver.service bustracker-backup.timer
 ```
+
+</details>
 
 The Pi does **not** need Mosquitto installed. See [`../broker/`](../broker/) for
 the VM side and [`../relay/`](../relay/) for the HTTP→MQTT relay.
@@ -150,5 +168,5 @@ every byte their phone receives.
   those validation gates no-op. The bbox and jump checks still apply.
 - **Push notifications are untested.** Code is complete but `BUS_PUSH_ENABLED`
   defaults off and no FCM project is wired up.
-- **Tracker/publisher Flutter apps are unchanged** and still point at Supabase.
-  They need their data layer swapped to MQTT.
+- **Never run on real hardware.** Everything so far has been verified against a
+  containerised broker on a laptop, not a real Pi, VM or bus.
