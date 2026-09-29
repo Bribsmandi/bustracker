@@ -5,8 +5,15 @@ class Config {
   /// The MQTT broker. It runs on the public VM rather than the Raspberry Pi,
   /// because the Pi sits behind campus NAT and cannot be connected to from
   /// outside. The Pi publishes to this broker; this app subscribes.
-  static const String mqttHost = 'recverse.ibinujaleel.dev';
-  static const int mqttPort = 1883;
+  ///
+  /// Supplied at build time so a credential never enters source control:
+  ///
+  ///     flutter build apk --release \
+  ///       --dart-define=BUS_MQTT_HOST=your.vm.host \
+  ///       --dart-define=BUS_MQTT_PASSWORD=<app password>
+  static const String mqttHost =
+      String.fromEnvironment('BUS_MQTT_HOST', defaultValue: 'recverse.ibinujaleel.dev');
+  static const int mqttPort = int.fromEnvironment('BUS_MQTT_PORT', defaultValue: 1883);
 
   /// Port for MQTT-over-WebSocket, used by Flutter web and by mobile networks
   /// that only allow 443.
@@ -17,8 +24,10 @@ class Config {
   /// broker ACL lets this user subscribe to `campus/live/#` and nothing else.
   /// Bus positions cannot be forged with it — those are signed by the hardware
   /// and verified by the relay before they are ever published.
-  static const String mqttUsername = 'app';
-  static const String mqttPassword = 'CHANGE_ME';
+  static const String mqttUsername =
+      String.fromEnvironment('BUS_MQTT_USERNAME', defaultValue: 'app');
+  static const String mqttPassword =
+      String.fromEnvironment('BUS_MQTT_PASSWORD', defaultValue: 'CHANGE_ME');
 
   /// Topics published by the Pi. All retained, so the current state arrives the
   /// moment we subscribe.

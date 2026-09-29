@@ -9,17 +9,28 @@
 class Config {
   /// The relay endpoint. Unchanged from the old design: the relay still accepts
   /// plain HTTP and still verifies the signature. Only its upstream changed.
-  static const String relayUrl = 'http://recverse.ibinujaleel.dev:8081/p';
-  static const String healthUrl = 'http://recverse.ibinujaleel.dev:8081/health';
+  static const String relayHost =
+      String.fromEnvironment('BUS_RELAY_HOST', defaultValue: 'recverse.ibinujaleel.dev:8081');
+
+  static String get relayUrl => 'http://$relayHost/p';
+  static String get healthUrl => 'http://$relayHost/health';
 
   /// Device identity, issued per unit and registered in the relay's
   /// devices.json. The relay binds a device to exactly one bus, so publishing as
   /// any other bus is refused with "wrong bus".
   ///
-  /// Set these before building. The secret never leaves the device — it signs
-  /// the body and is never transmitted.
-  static const String deviceId = 'esp32-01';
-  static const String deviceSecret = 'SET_BEFORE_BUILDING';
+  /// Supplied at build time rather than written here, so a real secret never
+  /// enters source control:
+  ///
+  ///     flutter build apk --release \
+  ///       --dart-define=BUS_DEVICE_ID=esp32-01 \
+  ///       --dart-define=BUS_DEVICE_SECRET=<32 hex characters>
+  ///
+  /// The secret never leaves the device — it signs the body and is never sent.
+  static const String deviceId =
+      String.fromEnvironment('BUS_DEVICE_ID', defaultValue: 'esp32-01');
+  static const String deviceSecret =
+      String.fromEnvironment('BUS_DEVICE_SECRET', defaultValue: 'SET_BEFORE_BUILDING');
 
   /// How often to sample and publish GPS.
   ///
