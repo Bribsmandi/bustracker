@@ -18,6 +18,9 @@ def cfg(tmp_path) -> Settings:
     s.db_path = tmp_path / "test.db"
     s.push_enabled = False
     s.mqtt_enabled = False
+    s.topic_root = "testroot"
+    # Most tests drive the pipeline directly; signing is covered on its own.
+    s.require_signature = False
     return s
 
 

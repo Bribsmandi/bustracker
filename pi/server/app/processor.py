@@ -7,6 +7,7 @@ the broker handles that.
 """
 from __future__ import annotations
 
+import json
 import logging
 import time
 from dataclasses import dataclass
@@ -16,6 +17,7 @@ from zoneinfo import ZoneInfo
 from .config import Settings, settings
 from .db import Database
 from .geo import haversine_m
+from .pipeline import authenticate
 from .pipeline import eta as eta_mod
 from .pipeline import geofence, journey, map_match, route_infer, smooth, validate
 from .state import BusState, Fix, LiveState
@@ -48,6 +50,7 @@ class Processor:
         self.live = live or LiveState(list(data.buses))
         self.last_arrival: dict[str, Arrival] = {}
         self.rejects: dict[str, str] = {}
+        self.secrets: dict[str, dict] = {}
         # Set whenever live state changes, so the publisher can send on change
         # rather than on a timer.
         self.dirty = False
@@ -73,6 +76,37 @@ class Processor:
         self._accept(state, fix, now)
         self.dirty = True
         return True
+
+    def handle_signed(self, bus_id: str, raw: str, now: float | None = None) -> bool:
+        """A fix as it arrives from a bus: signature first, then the pipeline.
+
+        Anyone can publish to a public broker, so an unverified message is not
+        evidence of anything and must never reach the state machine.
+        """
+        if not self.cfg.require_signature:
+            return self._handle_unsigned(bus_id, raw, now)
+        if not self.secrets:
+            self.rejects[bus_id] = "no secrets loaded"
+            log.error("signatures required but no device secrets are loaded")
+            return False
+        try:
+            payload = authenticate.verify(raw, bus_id, self.secrets)
+        except validate.Rejected as e:
+            self.rejects[bus_id] = e.reason
+            log.info("rejected publish on %s: %s", bus_id, e.reason)
+            return False
+        return self.handle_message(bus_id, payload, now)
+
+    def _handle_unsigned(self, bus_id: str, raw: str, now: float | None) -> bool:
+        """Replay and local testing against a private broker, where there is
+        nobody to spoof and no secret to sign with."""
+        body = raw[authenticate.SIG_LEN + 1 :] if raw[:1] not in "{[" else raw
+        try:
+            payload = authenticate.normalise(json.loads(body))
+        except (json.JSONDecodeError, TypeError, AttributeError):
+            self.rejects[bus_id] = "bad json"
+            return False
+        return self.handle_message(bus_id, payload, now)
 
     def handle_status(self, bus_id: str, payload: str, now: float | None = None) -> None:
         state = self.live.get(bus_id)

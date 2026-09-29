@@ -76,7 +76,13 @@ class LiveService {
     _client = client;
 
     try {
-      await client.connect(Config.mqttUsername, Config.mqttPassword);
+      // The public broker takes no credentials; sending empty strings is not
+      // the same as sending none, and some brokers reject it.
+      if (Config.mqttUsername.isEmpty) {
+        await client.connect();
+      } else {
+        await client.connect(Config.mqttUsername, Config.mqttPassword);
+      }
     } catch (_) {
       client.disconnect();
       _scheduleReconnect();

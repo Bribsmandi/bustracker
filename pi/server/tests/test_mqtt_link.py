@@ -81,7 +81,7 @@ def test_counter_replay_is_still_rejected_downstream(processor):
 # ------------------------------------------------------------ topic handling
 
 
-def test_gps_and_status_topics_are_routed(link, processor):
+def test_gps_and_status_topics_are_routed(link, processor, cfg):
     class Msg:
         def __init__(self, topic, payload):
             self.topic = topic
@@ -90,19 +90,22 @@ def test_gps_and_status_topics_are_routed(link, processor):
     calls: list = []
     link.loop.call_soon_threadsafe = lambda fn, *a: calls.append((fn.__name__, a))
 
-    link._on_message(None, None, Msg("campus/bus/bus1/gps", '{"seq":1,"lat":11.3,"lng":75.9}'))
-    link._on_message(None, None, Msg("campus/bus/bus3/status", "offline"))
-    link._on_message(None, None, Msg("campus/bus/bus1/unknown", "x"))
-    link._on_message(None, None, Msg("campus/bus/bus1/gps", "not json"))
+    root = cfg.bus_topics
+    link._on_message(None, None, Msg(f"{root}/bus1/gps", '{"seq":1,"lat":11.3,"lng":75.9}'))
+    link._on_message(None, None, Msg(f"{root}/bus3/status", "offline"))
+    link._on_message(None, None, Msg(f"{root}/bus1/unknown", "x"))
 
-    assert [c[0] for c in calls] == ["handle_message", "handle_status"]
+    # A gps publish is handed on verbatim: the processor verifies its signature
+    # before anything is parsed, so malformed payloads are its business.
+    assert [c[0] for c in calls] == ["handle_signed", "handle_status"]
     assert calls[0][1][0] == "bus1"
     assert calls[1][1] == ("bus3", "offline")
 
 
-def test_subscribes_to_both_topic_families(link):
+def test_subscribes_to_both_topic_families(link, cfg):
     link._on_connect(link.client, None, None, type("RC", (), {"is_failure": False})())
-    assert link.client.subscribed == [[("campus/bus/+/gps", 0), ("campus/bus/+/status", 1)]]
+    root = cfg.bus_topics
+    assert link.client.subscribed == [[(f"{root}/+/gps", 0), (f"{root}/+/status", 1)]]
 
 
 # ---------------------------------------------------------------- publishing
@@ -118,12 +121,12 @@ async def _run_publisher_briefly(link, seconds: float = 0.0):
         pass
 
 
-def test_snapshot_is_published_retained(link, processor):
+def test_snapshot_is_published_retained(link, processor, cfg):
     """Retained so a phone opening the app gets current state on subscribe."""
     feed(processor, "bus1", 11.317194, 75.937560, t=T0)
     asyncio.run(_run_publisher_briefly(link, 0.7))
 
-    live = [p for p in link.client.published if p[0] == "campus/live/buses"]
+    live = [p for p in link.client.published if p[0] == f"{cfg.live_topics}/buses"]
     assert live
     topic, payload, qos, retain = live[0]
     assert retain is True
@@ -132,10 +135,10 @@ def test_snapshot_is_published_retained(link, processor):
     assert len(body["buses"]) == 6
 
 
-def test_stop_arrivals_are_published_per_stop(link, processor):
+def test_stop_arrivals_are_published_per_stop(link, processor, cfg):
     asyncio.run(_run_publisher_briefly(link, 0.7))
-    stop_topics = {t for t in link.client.topics() if t.startswith("campus/live/stop/")}
-    assert "campus/live/stop/library" in stop_topics
+    stop_topics = {t for t in link.client.topics() if t.startswith(f"{cfg.live_topics}/stop/")}
+    assert f"{cfg.live_topics}/stop/library" in stop_topics
     assert len(stop_topics) == len(processor.data.stops)
 
 
@@ -169,11 +172,11 @@ def test_status_change_marks_state_dirty(processor):
     assert processor.dirty is False
 
 
-def test_config_is_published_retained_once(link, processor):
+def test_config_is_published_retained_once(link, processor, cfg):
     """The app gets stops/routes/timetable over MQTT, so it needs no HTTP call
     to draw the map. Published once, not on every tick."""
     asyncio.run(_run_publisher_briefly(link, 1.4))
-    configs = [p for p in link.client.published if p[0] == "campus/live/config"]
+    configs = [p for p in link.client.published if p[0] == f"{cfg.live_topics}/config"]
     assert len(configs) == 1
     topic, payload, qos, retain = configs[0]
     assert retain is True

@@ -23,6 +23,7 @@ from .api import rest, ws
 from .config import settings
 from .db import Database
 from .notifier import Notifier
+from .pipeline import authenticate
 from .planner import Planner
 from .processor import Processor
 from .static_data import StaticData
@@ -74,6 +75,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.hub = hub
     app.state.mqtt = None
     app.state.ingest_tokens = rest._load_ingest_tokens(settings.ingest_tokens_path)
+
+    processor.secrets = authenticate.load_secrets(settings.bus_secrets_path)
+    if settings.require_signature and not processor.secrets:
+        log.error(
+            "no device secrets at %s -- every fix will be rejected. "
+            "Copy the relay's devices.json there, or set BUS_REQUIRE_SIGNATURE=0.",
+            settings.bus_secrets_path,
+        )
+    else:
+        log.info("loaded %d device secret(s)", len(processor.secrets))
 
     tasks = [
         asyncio.create_task(db.run(), name="db-flush"),

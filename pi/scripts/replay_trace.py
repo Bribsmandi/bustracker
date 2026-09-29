@@ -20,8 +20,9 @@ never opens a trip.
 from __future__ import annotations
 
 import argparse
+import hashlib
+import hmac
 import json
-import math
 import random
 import sys
 import time
@@ -87,10 +88,14 @@ def load_fixes(path: Path) -> list[dict]:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--bus", required=True, help="bus id, e.g. bus1")
+    ap.add_argument("--device", default="", help="device id to sign as, e.g. esp32-01")
+    ap.add_argument("--secret", default="", help="that device's HMAC secret")
+    ap.add_argument("--devices-file", type=Path, help="read device and secret from a devices.json")
     src = ap.add_mutually_exclusive_group(required=True)
     src.add_argument("--route", help="route id from data/routes.json")
     src.add_argument("--file", type=Path, help="recorded trace, one JSON fix per line")
-    ap.add_argument("--host", default="127.0.0.1")
+    ap.add_argument("--host", default="broker.emqx.io")
+    ap.add_argument("--root", default="cbt7f3c9e21b", help="topic root; must match the server")
     ap.add_argument("--port", type=int, default=1883)
     ap.add_argument("--user", default="")
     ap.add_argument("--password", default="")
@@ -122,8 +127,22 @@ def main() -> int:
         print("no fixes to send", file=sys.stderr)
         return 1
 
-    topic = f"campus/bus/{args.bus}/gps"
-    status_topic = f"campus/bus/{args.bus}/status"
+    # Must match the server's BUS_TOPIC_ROOT.
+    root = args.root
+    topic = f"{root}/bus/{args.bus}/gps"
+    status_topic = f"{root}/bus/{args.bus}/status"
+
+    device_id, secret = args.device, args.secret
+    if args.devices_file:
+        devices = json.loads(args.devices_file.read_text())
+        for did, entry in devices.items():
+            if entry.get("bus_id") == args.bus:
+                device_id, secret = did, entry["secret"]
+                break
+    if not secret:
+        print("need --secret (with --device) or --devices-file: the server "
+              "rejects unsigned fixes", file=sys.stderr)
+        return 2
 
     client = None
     if not args.dry_run:
@@ -147,14 +166,26 @@ def main() -> int:
         while True:
             for fix in fixes:
                 seq += 1
-                payload = dict(fix)
-                payload["seq"] = seq
-                payload["t"] = time.time()
-                body = json.dumps(payload, separators=(",", ":"))
+                # Same shape and signature the firmware produces, so the server
+                # cannot tell a replay from a real bus.
+                body = json.dumps(
+                    {
+                        "b": args.bus,
+                        "d": device_id,
+                        "c": seq,
+                        "lat": round(fix["lat"], 6),
+                        "lng": round(fix["lng"], 6),
+                        "spd": fix.get("spd", 0.0),
+                        "hdg": fix.get("hdg"),
+                    },
+                    separators=(",", ":"),
+                )
+                sig = hmac.new(secret.encode(), body.encode(), hashlib.sha256).hexdigest()
+                message = f"{sig}.{body}"
                 if args.dry_run:
-                    print(f"{topic} {body}")
+                    print(f"{topic} {message}")
                 else:
-                    client.publish(topic, body, qos=0)
+                    client.publish(topic, message, qos=0)
                 sent += 1
                 if delay:
                     time.sleep(delay)

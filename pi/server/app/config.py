@@ -30,17 +30,24 @@ class Settings:
         default_factory=lambda: _p("BUS_DB_PATH", Path("/var/lib/bustracker/bus.db"))
     )
 
-    # The broker lives on the public VM, not here: the Pi is behind campus NAT
-    # and cannot be dialled into, so it connects outward as a client.
-    mqtt_host: str = os.environ.get("BUS_MQTT_HOST", "recverse.ibinujaleel.dev")
+    # A public broker, because nothing in this system can accept an inbound
+    # connection: the buses are on cellular NAT and the Pi is on a phone
+    # hotspot. Everything dials out to a meeting point instead. Free and
+    # unauthenticated, which is why fixes are signed (see pipeline/authenticate).
+    mqtt_host: str = os.environ.get("BUS_MQTT_HOST", "broker.emqx.io")
     mqtt_port: int = field(default_factory=lambda: _i("BUS_MQTT_PORT", 1883))
-    mqtt_username: str = os.environ.get("BUS_MQTT_USERNAME", "processor")
+    mqtt_username: str = os.environ.get("BUS_MQTT_USERNAME", "")
     mqtt_password: str = os.environ.get("BUS_MQTT_PASSWORD", "")
     mqtt_enabled: bool = os.environ.get("BUS_MQTT_ENABLED", "1") != "0"
-    topic_prefix: str = os.environ.get("BUS_TOPIC_PREFIX", "campus/bus")
 
-    # Processed state published back to the broker for the mobile app.
-    live_topic_prefix: str = os.environ.get("BUS_LIVE_PREFIX", "campus/live")
+    # Everything hangs off one root. On a shared public broker a generic name
+    # like "campus" collides with other people's traffic, so this is deliberately
+    # unguessable -- hygiene, not security.
+    topic_root: str = os.environ.get("BUS_TOPIC_ROOT", "cbt7f3c9e21b")
+
+    # Fixes signed by the buses, and the processed state the app reads.
+    topic_prefix: str = os.environ.get("BUS_TOPIC_PREFIX", "")
+    live_topic_prefix: str = os.environ.get("BUS_LIVE_PREFIX", "")
     publish_live: bool = os.environ.get("BUS_PUBLISH_LIVE", "1") != "0"
     # Publish as soon as something changes, but no faster than this...
     live_min_interval: float = field(default_factory=lambda: _f("BUS_LIVE_MIN_INTERVAL", 1.0))
@@ -50,10 +57,17 @@ class Settings:
     live_max_interval: float = field(default_factory=lambda: _f("BUS_LIVE_MAX_INTERVAL", 10.0))
     live_stop_interval: float = field(default_factory=lambda: _f("BUS_LIVE_STOP_INTERVAL", 15.0))
 
-    # Shared secret for the plan-B HTTPS ingest fallback (section 5.4).
+    # Shared secret for the direct HTTP test-injection route.
     ingest_tokens_path: Path = field(
         default_factory=lambda: _p("BUS_INGEST_TOKENS", Path("/etc/bustracker/ingest_tokens.json"))
     )
+
+    # Per-device HMAC secrets, in the relay's devices.json format. Anyone can
+    # publish to a public broker, so an unsigned fix is not worth acting on.
+    bus_secrets_path: Path = field(
+        default_factory=lambda: _p("BUS_SECRETS", Path("/etc/bustracker/devices.json"))
+    )
+    require_signature: bool = os.environ.get("BUS_REQUIRE_SIGNATURE", "1") != "0"
 
     broadcast_hz: float = field(default_factory=lambda: _f("BUS_BROADCAST_HZ", 1.0))
     db_flush_sec: float = field(default_factory=lambda: _f("BUS_DB_FLUSH_SEC", 5.0))
@@ -129,6 +143,14 @@ class Settings:
             (self.bbox_south + self.bbox_north) / 2,
             (self.bbox_west + self.bbox_east) / 2,
         )
+
+    @property
+    def bus_topics(self) -> str:
+        return self.topic_prefix or f"{self.topic_root}/bus"
+
+    @property
+    def live_topics(self) -> str:
+        return self.live_topic_prefix or f"{self.topic_root}/live"
 
     def in_bbox(self, lat: float, lng: float) -> bool:
         return (

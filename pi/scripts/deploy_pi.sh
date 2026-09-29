@@ -6,8 +6,9 @@
 #
 #   sudo ./deploy_pi.sh
 #
-# The Pi needs no broker of its own and no inbound ports. It dials out to the
-# broker on the VM, which is why BUS_MQTT_HOST must be the VM, not localhost.
+# The Pi needs no broker of its own, no inbound ports, no tunnel and no domain.
+# It dials out to a public broker, as do the buses and the phones -- nothing in
+# this system can accept an incoming connection.
 set -euo pipefail
 
 REPO=${REPO:-/opt/bustracker}
@@ -73,18 +74,26 @@ else
   echo "  created $ENV_FILE from the example"
 fi
 
-if grep -q 'change-me' "$ENV_FILE"; then
-  cat >&2 <<'WARN'
+# The public broker needs no credentials, so there is nothing to fill in there.
+# What it does need is the device secrets: without them every fix is rejected,
+# which looks exactly like "no buses are running".
+SECRETS=${SECRETS:-/etc/bustracker/devices.json}
+if [[ ! -f $SECRETS ]]; then
+  if [[ -f $REPO/relay/devices.json ]]; then
+    install -m 600 "$REPO/relay/devices.json" "$SECRETS"
+    echo "  installed device secrets from the repo -- ROTATE THESE"
+  else
+    cat >&2 <<WARN
 
-  !! BUS_MQTT_PASSWORD is still the placeholder.
-     Edit the file, set BUS_MQTT_HOST to the VM and BUS_MQTT_PASSWORD to the
-     'processor' password that deploy_vm.sh printed, then re-run this script:
-
-       sudo nano /etc/bustracker/server.env
+  !! No device secrets at $SECRETS
+     Every fix will be rejected without them. Copy the devices.json holding
+     each unit's bus_id and secret there, then re-run this script.
 
 WARN
-  exit 1
+    exit 1
+  fi
 fi
+chmod 600 "$SECRETS"
 
 # ---------------------------------------------------------------- service
 say "Installing services"
@@ -108,7 +117,7 @@ health=$(curl -s --max-time 5 http://localhost:8000/health || true)
 echo "  /health: $health"
 
 if [[ $health == *'"mqtt_connected": true'* || $health == *'"mqtt_connected":true'* ]]; then
-  echo "  OK: connected to the broker on the VM"
+  echo "  OK: connected to the broker"
 else
   cat >&2 <<WARN
 
@@ -120,7 +129,8 @@ else
     grep BUS_MQTT $ENV_FILE
     journalctl -u busserver -n 30 --no-pager
 
-  If nc fails, open 1883 in the VM's CLOUD firewall, not just ufw.
+  If nc fails, this network blocks outbound 1883. Try another network or
+  hotspot -- TLS on 8883 is not an option, because the buses cannot do TLS.
 
 WARN
   exit 1

@@ -2,17 +2,17 @@
 class Config {
   // ---------------------------------------------------------------- transport
 
-  /// The MQTT broker. It runs on the public VM rather than the Raspberry Pi,
-  /// because the Pi sits behind campus NAT and cannot be connected to from
-  /// outside. The Pi publishes to this broker; this app subscribes.
+  /// A public MQTT broker. Nothing in this system can accept an inbound
+  /// connection — the buses are on cellular NAT and the Pi on a phone hotspot —
+  /// so every party dials out to a common meeting point instead.
   ///
-  /// Supplied at build time so a credential never enters source control:
+  /// Overridable at build time:
   ///
   ///     flutter build apk --release \
-  ///       --dart-define=BUS_MQTT_HOST=your.vm.host \
-  ///       --dart-define=BUS_MQTT_PASSWORD=<app password>
+  ///       --dart-define=BUS_MQTT_HOST=broker.emqx.io \
+  ///       --dart-define=BUS_TOPIC_ROOT=<must match the Pi>
   static const String mqttHost =
-      String.fromEnvironment('BUS_MQTT_HOST', defaultValue: 'recverse.ibinujaleel.dev');
+      String.fromEnvironment('BUS_MQTT_HOST', defaultValue: 'broker.emqx.io');
   static const int mqttPort = int.fromEnvironment('BUS_MQTT_PORT', defaultValue: 1883);
 
   /// Port for MQTT-over-WebSocket, used by Flutter web and by mobile networks
@@ -20,20 +20,24 @@ class Config {
   static const int mqttWsPort = 9001;
   static const bool useWebSocket = false;
 
-  /// Read-only credential. It ships inside the app, so treat it as public: the
-  /// broker ACL lets this user subscribe to `campus/live/#` and nothing else.
-  /// Bus positions cannot be forged with it — those are signed by the hardware
-  /// and verified by the relay before they are ever published.
+  /// The public broker takes no credentials. Left configurable so a private
+  /// broker with authentication can be swapped in without a code change.
   static const String mqttUsername =
-      String.fromEnvironment('BUS_MQTT_USERNAME', defaultValue: 'app');
+      String.fromEnvironment('BUS_MQTT_USERNAME', defaultValue: '');
   static const String mqttPassword =
-      String.fromEnvironment('BUS_MQTT_PASSWORD', defaultValue: 'CHANGE_ME');
+      String.fromEnvironment('BUS_MQTT_PASSWORD', defaultValue: '');
+
+  /// Root for every topic. Deliberately unguessable: on a shared public broker
+  /// a generic name collides with other people's traffic. Hygiene, not security
+  /// — it must match the Pi's BUS_TOPIC_ROOT.
+  static const String topicRoot =
+      String.fromEnvironment('BUS_TOPIC_ROOT', defaultValue: 'cbt7f3c9e21b');
 
   /// Topics published by the Pi. All retained, so the current state arrives the
   /// moment we subscribe.
-  static const String topicBuses = 'campus/live/buses';
-  static const String topicConfig = 'campus/live/config';
-  static String topicStop(String stopId) => 'campus/live/stop/$stopId';
+  static const String topicBuses = '$topicRoot/live/buses';
+  static const String topicConfig = '$topicRoot/live/config';
+  static String topicStop(String stopId) => '$topicRoot/live/stop/$stopId';
 
   /// REST base URL, for the things pub/sub is the wrong shape for: trip
   /// planning and analytics. Empty disables them and the app falls back to its

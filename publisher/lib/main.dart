@@ -12,10 +12,10 @@ import 'uploader.dart';
 /// A phone standing in for an ESP32 tracker unit.
 ///
 /// It does exactly what the firmware does and nothing more: read GPS, sign it,
-/// POST it every 5 seconds. There is no route logic, no claiming, no journey
-/// state machine and no trip logging here any more — the Raspberry Pi works all
-/// of that out from the raw positions, so a phone and a real unit now produce
-/// identical results.
+/// publish it to the broker every 5 seconds. There is no route logic, no
+/// claiming, no journey state machine and no trip logging here — the Raspberry
+/// Pi works all of that out from the raw positions, so a phone and a real unit
+/// produce identical results.
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   runApp(const PublisherApp());
@@ -154,7 +154,10 @@ class _PublisherPageState extends State<PublisherPage> {
       _error = null;
       _sent = 0;
       _accepted = 0;
+      _status = 'Connecting to the broker…';
     });
+
+    await _uploader.connect(_selectedBusId!);
 
     _posSub = Geolocator.getPositionStream(
       locationSettings: _locationSettings(),
@@ -181,6 +184,9 @@ class _PublisherPageState extends State<PublisherPage> {
     _posSub = null;
     _heartbeat?.cancel();
     _heartbeat = null;
+    // Publishes the retained "offline" status, so the map greys this bus out
+    // immediately rather than waiting for it to age out.
+    await _uploader.disconnect();
     if (mounted) {
       setState(() {
         _sharing = false;
@@ -318,7 +324,8 @@ class _PublisherPageState extends State<PublisherPage> {
             Text(_status,
                 style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
             const SizedBox(height: 12),
-            _row('Accepted', '$_accepted of $_sent sent'),
+            _row('Broker', _uploader.connected ? 'connected' : 'not connected'),
+            _row('Published', '$_accepted of $_sent'),
             _row('Counter', '${_uploader.counter}'),
             _row(
                 'Last accepted',

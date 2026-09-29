@@ -3,11 +3,11 @@ import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:publisher/uploader.dart';
 
-/// The wire contract from HARDWARE.md.
+/// The wire contract shared with the ESP32 firmware and verified by the Pi.
 ///
 /// The expected signature below was produced independently by `openssl dgst`
 /// and by Python's `hmac`, both agreeing — so this pins the Dart implementation
-/// against what the relay will actually compute, not against itself.
+/// against what the server will actually compute, not against itself.
 const _referenceBody =
     '{"b":"bus1","d":"esp32-01","c":1,"lat":11.3185,"lng":75.9379,'
     '"spd":6.4,"hdg":312}';
@@ -17,7 +17,7 @@ const _referenceSig =
 
 void main() {
   group('signing', () {
-    test('matches the reference signature from HARDWARE.md §7', () {
+    test('matches a signature computed by openssl and Python', () {
       expect(Uploader.sign(_referenceBody, _referenceSecret), _referenceSig);
     });
 
@@ -33,13 +33,35 @@ void main() {
     });
   });
 
+  group('wire framing', () {
+    test('is signature, a dot, then the signed bytes verbatim', () {
+      final framed = Uploader.frame(_referenceBody, _referenceSecret);
+      expect(framed, '$_referenceSig.$_referenceBody');
+
+      // What the server does: split on the first dot and verify the remainder.
+      final dot = framed.indexOf('.');
+      expect(dot, 64);
+      final sig = framed.substring(0, dot);
+      final body = framed.substring(dot + 1);
+      expect(body, _referenceBody);
+      expect(Uploader.sign(body, _referenceSecret), sig);
+    });
+
+    test('a body containing dots still splits correctly', () {
+      // Coordinates are full of dots; only the first one delimits.
+      final framed = Uploader.frame(_referenceBody, _referenceSecret);
+      final body = framed.substring(framed.indexOf('.') + 1);
+      expect(jsonDecode(body)['lat'], 11.3185);
+    });
+  });
+
   group('body construction', () {
-    test('signs to a value the relay independently computes', () {
+    test('signs to a value the server independently computes', () {
       // Dart renders a double heading as "312.0" where the doc example writes
-      // "312". That is fine: the relay verifies the HMAC over the exact bytes it
-      // received and then parses them, so any valid JSON rendering works. What
-      // must hold is that Python computes the same digest over OUR bytes — this
-      // expected value came from `openssl dgst` and Python's `hmac`, agreeing.
+      // "312". That is fine: the server verifies the HMAC over the exact bytes
+      // it received and then parses them. What must hold is that Python
+      // computes the same digest over OUR bytes — this value came from
+      // `openssl dgst` and Python's `hmac`, agreeing.
       const dartBody = '{"b":"bus1","d":"esp32-01","c":1,"lat":11.3185,'
           '"lng":75.9379,"spd":6.4,"hdg":312.0}';
       const dartSig =
@@ -87,7 +109,7 @@ void main() {
       expect(body, contains('"hdg":null'));
     });
 
-    test('coordinates are trimmed to 6 decimals, as the spec allows', () {
+    test('coordinates are trimmed to 6 decimals', () {
       final body = Uploader.buildBody(
         busId: 'bus1',
         deviceId: 'esp32-01',
@@ -112,23 +134,21 @@ void main() {
     });
   });
 
-  group('relay responses', () {
-    test('403 is fatal — a config error retrying will never fix', () {
-      expect(const UploadResult(403, false, 'bad signature').isFatal, isTrue);
-      expect(const UploadResult(403, false, 'wrong bus').isFatal, isTrue);
+  group('publish outcomes', () {
+    test('a missing device secret is fatal, not a retryable blip', () {
+      const r = UploadResult(false, 'no device secret compiled in');
+      expect(r.isFatal, isTrue);
+      expect(r.ok, isFalse);
     });
 
-    test('a replay or an outage is not fatal', () {
-      expect(const UploadResult(409, false, 'replay').isFatal, isFalse);
-      expect(const UploadResult(502, false, 'upstream down').isFatal, isFalse);
-      expect(const UploadResult(0, false, 'no route to host').isFatal, isFalse);
+    test('a dropped connection is not fatal', () {
+      const r = UploadResult(false, 'not connected');
+      expect(r.isFatal, isFalse);
+      expect(r.describe(), 'not connected');
     });
 
-    test('describe is readable for each documented outcome', () {
-      expect(const UploadResult(200, true).describe(), 'Accepted');
-      expect(const UploadResult(409, false, 'replay').describe(), '409 replay');
-      expect(const UploadResult(0, false, 'timeout').describe(),
-          'No network: timeout');
+    test('success describes itself plainly', () {
+      expect(const UploadResult(true).describe(), 'Published');
     });
   });
 }

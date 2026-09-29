@@ -1,13 +1,18 @@
 """The Pi's single connection to the broker: raw fixes in, processed state out.
 
-The broker is on the public VM because the Pi cannot be dialled into from
-outside campus NAT. So this is an ordinary outbound client connection — the same
-thing a phone makes — and it carries traffic in both directions:
+The broker is public because nothing here can accept an inbound connection — the
+buses sit on cellular NAT and the Pi on a phone hotspot. So this is an ordinary
+outbound client connection, the same thing a phone makes, carrying both
+directions:
 
-    subscribe  campus/bus/+/gps      raw fixes, republished by the relay
-    subscribe  campus/bus/+/status   online/offline, driven by the relay watchdog
-    publish    campus/live/buses     the processed snapshot the app renders
-    publish    campus/live/stop/{id} per-stop arrival estimates
+    subscribe  <root>/bus/+/gps      fixes signed by the buses themselves
+    subscribe  <root>/bus/+/status   online, or the bus's Last Will
+    publish    <root>/live/buses     the processed snapshot the app renders
+    publish    <root>/live/stop/{id} per-stop arrival estimates
+    publish    <root>/live/config    stops, routes and the timetable
+
+Anyone can publish to a public broker, so incoming fixes are verified against a
+per-device HMAC before the pipeline sees them (pipeline/authenticate).
 
 paho runs its network loop on its own thread; incoming messages are handed to the
 event loop with call_soon_threadsafe so the pipeline only ever runs on the loop
@@ -72,7 +77,7 @@ class MqttLink:
             log.error("mqtt connect refused: %s", reason_code)
             return
         self.connected = True
-        prefix = self.cfg.topic_prefix
+        prefix = self.cfg.bus_topics
         client.subscribe([(f"{prefix}/+/gps", 0), (f"{prefix}/+/status", 1)])
         log.info(
             "mqtt connected to %s:%d, subscribed under %s/+/",
@@ -103,14 +108,9 @@ class MqttLink:
             return
         if kind != "gps":
             return
-        try:
-            payload = json.loads(raw)
-        except json.JSONDecodeError:
-            log.info("bad json on %s", msg.topic)
-            return
-        if not isinstance(payload, dict):
-            return
-        self.loop.call_soon_threadsafe(self.p.handle_message, bus_id, payload)
+        # Signed by the bus and verified by the processor: on a public broker
+        # anyone can publish here, so nothing is trusted before that check.
+        self.loop.call_soon_threadsafe(self.p.handle_signed, bus_id, raw)
 
     # ------------------------------------------------------------- publishing
 
@@ -148,7 +148,7 @@ class MqttLink:
             if self.connected and config_version != self.p.data.version:
                 try:
                     self._publish(
-                        f"{self.cfg.live_topic_prefix}/config", self.p.data.config_payload()
+                        f"{self.cfg.live_topics}/config", self.p.data.config_payload()
                     )
                     config_version = self.p.data.version
                     log.info("published config version %s", config_version)
@@ -161,7 +161,7 @@ class MqttLink:
                 self.p.dirty = False
                 last_live = now
                 try:
-                    self._publish(f"{self.cfg.live_topic_prefix}/buses", self.p.snapshot(now))
+                    self._publish(f"{self.cfg.live_topics}/buses", self.p.snapshot(now))
                 except Exception:
                     log.exception("publishing snapshot failed")
 
@@ -170,7 +170,7 @@ class MqttLink:
                 try:
                     for stop_id in self.p.data.stops:
                         self._publish(
-                            f"{self.cfg.live_topic_prefix}/stop/{stop_id}",
+                            f"{self.cfg.live_topics}/stop/{stop_id}",
                             self.planner.arrivals(stop_id, now),
                         )
                 except Exception:

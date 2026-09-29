@@ -1,60 +1,75 @@
 # Raspberry Pi backend
 
 Replaces the old cloud stack (relay VM → Supabase → app). All storage,
-computation and analytics now run on one Pi we own. The hardware in the buses is
-**unchanged** — `HARDWARE.md` is still accurate as written.
+computation and analytics run on one Pi we own, and there is no server to rent
+or keep alive.
+
+The buses publish MQTT directly. That **is** a firmware change from the old HTTP
+POST — see `HARDWARE.md`, which has been rewritten for it.
 
 ## How the pieces connect
 
 ```
-ESP32 ──HTTP POST + X-Sig──► relay.py ──►┌──────────────────────┐
-  (2G, no TLS, 5 s)          (public VM) │ Mosquitto (public VM)│
-                                         │  campus/bus/+/gps    │◄──┐ subscribe
-     mobile app ◄────MQTT / WSS──────────│  campus/live/#       │───┘ publish
-                                         └──────────────────────┘
-                                                    ▲ one outbound connection
-                                              ┌─────┴──────────────────────┐
-                                              │ Raspberry Pi (classroom)   │
-                                              │  processor → SQLite        │
-                                              │  FastAPI (REST, admin)     │
-                                              └────────────────────────────┘
+ESP32 ──signed MQTT :1883──►┌────────────────────┐
+  (2G, no TLS, every 5 s)   │  broker.emqx.io    │
+                            │  public, free      │
+   tracker app ◄────────────│  nothing to run    │
+                            └─────────▲──────────┘
+                                      │ one outbound connection
+                            ┌─────────┴────────────────────┐
+                            │ Raspberry Pi (phone hotspot) │
+                            │  verify → process → SQLite   │
+                            └──────────────────────────────┘
 ```
 
-### Why the broker is not on the Pi
+### Why a public broker
 
-The Pi sits behind campus NAT with no public IP and no port forwarding, so
-**nothing on the internet can open a connection to it**. An MQTT connection needs
-one side listening and reachable. So the broker lives on the VM, and the Pi
-connects *outward* to it — which NAT permits. The phones connect to the same
-broker, which is the other reason it has to be public.
+Nothing in this system can accept an inbound connection. The buses sit behind
+carrier NAT on 2G, and the Pi runs on a phone hotspot — there is no router to
+forward a port on and no public IP anywhere. So every party dials *out* to a
+common meeting point.
 
-The Pi is a client in both directions: it subscribes to raw fixes and publishes
-the processed snapshot back.
+It has to be a *public* broker rather than a managed free tier because the
+SIM900A has no TLS, and HiveMQ, EMQX Serverless and the rest accept TLS only.
 
-### Why the relay survived
-
-The ESP32 units run SIM900A — 2G, **no TLS, no MQTT client, no WebSocket**. They
-cannot speak to a broker directly. `relay.py` already existed to bridge that gap
-(plain HTTP in, something else out), so it keeps its job and only its upstream
-changed: Supabase-over-HTTPS became an MQTT publish. Nothing in the buses had to
-be touched, and the SIM module's limitations stopped mattering.
+The consequence is that anyone can publish to these topics, which is why every
+fix is signed and verified before the pipeline sees it.
 
 ## Topics
 
+`<root>` is `BUS_TOPIC_ROOT`, default `cbt7f3c9e21b` — unguessable so the buses
+do not collide with the thousands of others on this broker.
+
 | Topic | Published by | Read by | Retained |
 |---|---|---|---|
-| `campus/bus/{id}/gps` | relay | Pi | no |
-| `campus/bus/{id}/status` | relay watchdog | Pi | yes |
-| `campus/live/buses` | Pi | app | **yes** |
-| `campus/live/stop/{stop_id}` | Pi | app | **yes** |
-| `campus/live/config` | Pi | app | **yes** |
+| `<root>/bus/{id}/gps` | bus, signed | Pi | no |
+| `<root>/bus/{id}/status` | bus + its Last Will | Pi | yes |
+| `<root>/live/buses` | Pi | app | **yes** |
+| `<root>/live/stop/{stop_id}` | Pi | app | **yes** |
+| `<root>/live/config` | Pi | app | **yes** |
 
 Everything the app needs is retained, so opening the app delivers current state
 on subscribe — no request/response round trip, no "fetch then subscribe" race,
 and a timetable fix reaches phones without an app release.
 
-The device cannot register an MQTT Last Will, so the relay publishes `offline` on
-its behalf when a bus stops POSTing.
+Each bus registers an MQTT Last Will, so the broker announces it offline the
+moment the connection dies — no polling, no timeout guesswork.
+
+## Verifying signatures
+
+The Pi needs the per-device secrets, in the same `devices.json` format the relay
+used:
+
+```bash
+sudo cp /opt/bustracker/relay/devices.json /etc/bustracker/devices.json
+sudo chmod 600 /etc/bustracker/devices.json
+```
+
+Without them **every fix is rejected** and the log says so. That is deliberate:
+failing closed is the only safe default when the transport is a public broker.
+
+`BUS_REQUIRE_SIGNATURE=0` disables the check for local replay against a private
+broker. Never set it in production.
 
 ## Install
 
@@ -68,8 +83,9 @@ It installs the dependencies, builds the venv, **runs the test suite and stops
 if it fails**, installs the services and verifies the broker connection. Re-run
 it to upgrade; it keeps your `server.env` and never touches the database.
 
-Set `BUS_MQTT_HOST` and `BUS_MQTT_PASSWORD` in `/etc/bustracker/server.env`
-first — the script stops and tells you if they are still placeholders.
+The defaults point at the public broker and need no credentials, so
+`server.env` usually needs no editing at all. What it does need is the device
+secrets — see above.
 
 <details>
 <summary>Manual steps, if you prefer</summary>
@@ -84,8 +100,8 @@ sudo python3 -m venv .venv
 sudo .venv/bin/pip install -e .
 
 sudo cp /opt/bustracker/pi/systemd/server.env.example /etc/bustracker/server.env
-sudo chmod 600 /etc/bustracker/server.env    # holds the broker password
-sudo nano /etc/bustracker/server.env         # set BUS_MQTT_HOST / PASSWORD
+sudo chmod 600 /etc/bustracker/server.env
+sudo cp /opt/bustracker/relay/devices.json /etc/bustracker/devices.json
 
 sudo cp /opt/bustracker/pi/systemd/busserver.service /etc/systemd/system/
 sudo cp /opt/bustracker/pi/systemd/bustracker-backup.* /etc/systemd/system/
@@ -95,8 +111,10 @@ sudo systemctl enable --now busserver.service bustracker-backup.timer
 
 </details>
 
-The Pi does **not** need Mosquitto installed. See [`../broker/`](../broker/) for
-the VM side and [`../relay/`](../relay/) for the HTTP→MQTT relay.
+The Pi does **not** need Mosquitto installed, and needs no inbound ports, no
+tunnel and no domain. [`../relay/`](../relay/) and [`../broker/`](../broker/)
+are not used by this design; they are kept in case the buses ever go back to
+HTTP with a self-hosted broker.
 
 ## Verify
 
@@ -104,19 +122,20 @@ the VM side and [`../relay/`](../relay/) for the HTTP→MQTT relay.
 curl -s localhost:8000/health | python3 -m json.tool
 ```
 
-`mqtt_connected: true` means the outbound link to the VM broker is up.
+`mqtt_connected: true` means the outbound link to the broker is up.
 
-Drive a bus without hardware, through the real signed-HTTP path:
+Drive a bus without hardware. This signs exactly as the firmware does, so the
+server cannot tell the difference:
 
 ```bash
-relay/simulate_device.py --device esp32-01 --devices-file relay/devices.json \
-  --route mbh_to_east
+pi/scripts/replay_trace.py --bus bus1 --route mbh_to_east \
+  --devices-file relay/devices.json
 ```
 
-Or inject straight into the pipeline, skipping relay and broker:
+Watch what the server publishes back:
 
 ```bash
-pi/scripts/replay_trace.py --bus bus1 --route mbh_to_east --host <broker> --user relay
+mosquitto_sub -h broker.emqx.io -t 'cbt7f3c9e21b/live/buses' -v
 ```
 
 ## Exposing the REST API
@@ -139,7 +158,7 @@ Either way the Pi needs no inbound ports and no router changes.
 ## Tuning notes
 
 Defaults in [`server/app/config.py`](server/app/config.py) are sized for the
-**5 s** fix interval in `HARDWARE.md` §6.1, not the 1 Hz the design report
+**5 s** fix interval in `HARDWARE.md` §7.1, not the 1 Hz the design report
 assumed. Everything is overridable by environment variable.
 
 | Setting | Default | Why |
@@ -150,6 +169,8 @@ assumed. Everything is overridable by environment variable.
 | `BUS_POS_SMOOTHING` | 0.2 | Fixes 5 s apart are genuinely different positions |
 | `BUS_LIVE_MIN_INTERVAL` | 1 s | Floor on publish rate when state changes |
 | `BUS_LIVE_MAX_INTERVAL` | 10 s | Republish even when idle, so age/status propagate |
+| `BUS_TOPIC_ROOT` | `cbt7f3c9e21b` | Must match the buses and the app |
+| `BUS_REQUIRE_SIGNATURE` | `1` | Fail closed; only disable for local replay |
 
 Publishing is change-driven rather than a fixed 1 Hz stream — students pay for
 every byte their phone receives.
@@ -160,13 +181,15 @@ every byte their phone receives.
   HMAC secrets, and `HARDWARE.md` §5/§8 say they should never be committed. They
   are what stops anyone forging a bus position, so they should be rotated before
   the system is relied on. Deliberately deferred as a prototype decision.
-- **No TLS anywhere.** The bus→relay leg cannot have it (SIM900A), and the
-  broker legs currently do not. Forging positions is still blocked by the HMAC,
-  but credentials and positions are readable in transit. See
-  [`../broker/README.md`](../broker/README.md) for the upgrade.
+- **Public broker, no TLS.** The SIM900A cannot do TLS and managed free tiers
+  are TLS-only. Forging a position is blocked by the HMAC, but anyone can read
+  the topics and the broker offers no SLA. Acceptable for a demo; move to a
+  private broker before anyone depends on it.
 - **GPS quality filtering is inert.** The firmware sends no `sats`/`hdop`, so
   those validation gates no-op. The bbox and jump checks still apply.
 - **Push notifications are untested.** Code is complete but `BUS_PUSH_ENABLED`
   defaults off and no FCM project is wired up.
-- **Never run on real hardware.** Everything so far has been verified against a
-  containerised broker on a laptop, not a real Pi, VM or bus.
+- **Never run on real hardware.** Verified end to end against the real public
+  broker from a laptop, but not yet on a Pi or with an ESP32.
+- **The firmware does not speak MQTT yet.** Until it does, the buses cannot
+  reach this. `pi/scripts/replay_trace.py` stands in for them.
