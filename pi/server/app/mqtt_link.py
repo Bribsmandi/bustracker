@@ -34,7 +34,10 @@ from .processor import Processor
 
 log = logging.getLogger("bus.mqtt")
 
-POLL_INTERVAL = 0.5
+# How often the publisher loop wakes to check whether anything changed. It sets
+# the granularity of live_min_interval: at 0.5 s a 1 s target drifts to 1.5 s,
+# so keep it well under the interval being aimed for.
+POLL_INTERVAL = 0.2
 
 
 class MqttLink:

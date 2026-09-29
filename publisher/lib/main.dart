@@ -204,9 +204,11 @@ class _PublisherPageState extends State<PublisherPage> {
     if (busId == null || !_sharing) return;
 
     // The GPS stream and the heartbeat can both fire; do not double-send.
+    // A fraction rather than a fixed subtraction, so this still works at the
+    // 1 s interval where "minus one second" would leave no window at all.
     final now = DateTime.now();
     final since = _lastPushAt == null ? null : now.difference(_lastPushAt!);
-    if (since != null && since < Config.fixInterval - const Duration(seconds: 1)) {
+    if (since != null && since < Config.fixInterval * 0.8) {
       return;
     }
     _lastPushAt = now;

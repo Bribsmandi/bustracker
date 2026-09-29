@@ -48,17 +48,27 @@ class Config {
 
   // ------------------------------------------------------------------ timing
 
-  /// How often to sample and publish GPS.
+  /// How often to sample and publish GPS, in milliseconds.
   ///
-  /// Derived, not chosen (HARDWARE.md §6.1): the bus must record at least two
-  /// fixes inside the server's 40 m stop radius or it can pass through without
-  /// registering an arrival. It is inside that circle for an 80 m chord, so the
-  /// interval must satisfy T <= 40 / speed. At 5 s that holds up to 28.8 km/h.
-  static const Duration fixInterval = Duration(seconds: 5);
+  /// 1 s here, because a phone has mains-free GPS and unmetered-ish data and
+  /// the point of this tool is a smooth demo. The real ESP32 units stay at 5 s:
+  /// that figure is derived, not chosen (HARDWARE.md §7.1) — the bus must get
+  /// at least two fixes inside the server's 40 m stop radius or it can pass
+  /// through without registering an arrival, and on 2G a faster rate costs data
+  /// and battery for a link that cannot keep up anyway.
+  ///
+  /// The app updates at whatever rate the bus reports, so this sets the visible
+  /// smoothness of the demo. Override for a slower, cheaper run:
+  ///
+  ///     --dart-define=BUS_FIX_INTERVAL_MS=5000
+  static const int fixIntervalMs =
+      int.fromEnvironment('BUS_FIX_INTERVAL_MS', defaultValue: 1000);
+
+  static const Duration fixInterval = Duration(milliseconds: fixIntervalMs);
 
   /// Keep publishing while the bus is stationary, so the server sees it as
   /// parked-and-running rather than gone.
-  static const Duration heartbeat = Duration(seconds: 5);
+  static const Duration heartbeat = Duration(milliseconds: fixIntervalMs);
 
   /// MQTT keepalive. Long enough to be cheap on 2G, short enough that a dead
   /// connection is noticed within a broadcast cycle.

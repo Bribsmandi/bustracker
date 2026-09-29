@@ -79,7 +79,25 @@ failing closed is the only safe default when the transport is a public broker.
 `BUS_REQUIRE_SIGNATURE=0` disables the check for local replay against a private
 broker. Never set it in production.
 
-## Install
+## Run it on a laptop first
+
+The Pi is not special: the same code against the same broker, so the apps
+cannot tell the difference. Worth doing before touching a Pi, and the fastest
+way to demo.
+
+```bash
+./pi/scripts/run_local.sh
+```
+
+No install, no systemd, no root. It builds the virtualenv on first run and
+reads the device secrets from `relay/devices.json`. Ctrl-C stops it and marks
+the server offline in the app.
+
+**If the app says "bus server is not running", this is what is missing.** The
+buses publish to `<root>/bus/...` but nothing renders until something consumes
+those fixes and produces `<root>/live/buses`.
+
+## Install on the Pi
 
 One command, once the repository is cloned to `/opt/bustracker`:
 
