@@ -31,7 +31,7 @@ class Config {
   /// a generic name collides with other people's traffic. Hygiene, not security
   /// — it must match the Pi's BUS_TOPIC_ROOT.
   static const String topicRoot =
-      String.fromEnvironment('BUS_TOPIC_ROOT', defaultValue: 'cbt7f3c9e21b');
+      String.fromEnvironment('BUS_TOPIC_ROOT', defaultValue: 'campus_arund');
 
   /// Topics published by the Pi. All retained, so the current state arrives the
   /// moment we subscribe.
@@ -53,7 +53,7 @@ class Config {
   /// REST base URL, for the things pub/sub is the wrong shape for: trip
   /// planning and analytics. Empty disables them and the app falls back to its
   /// own on-device planner.
-  static const String apiBaseUrl = '';
+  static const String apiBaseUrl = 'http://127.0.0.1:8000';
 
   /// How long to wait before retrying a dropped broker connection.
   static const Duration reconnectDelay = Duration(seconds: 3);

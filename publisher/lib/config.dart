@@ -42,9 +42,9 @@ class Config {
   ///
   /// The secret never leaves the device — it signs the body and is never sent.
   static const String deviceId =
-      String.fromEnvironment('BUS_DEVICE_ID', defaultValue: 'esp32-01');
+      String.fromEnvironment('BUS_DEVICE_ID', defaultValue: 'esp32-02');
   static const String deviceSecret =
-      String.fromEnvironment('BUS_DEVICE_SECRET', defaultValue: 'SET_BEFORE_BUILDING');
+      String.fromEnvironment('BUS_DEVICE_SECRET', defaultValue: '7e0ee4d06b73410b5cafe60773e8dc4a');
 
   // ------------------------------------------------------------------ timing
 

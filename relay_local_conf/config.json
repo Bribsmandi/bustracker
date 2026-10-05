@@ -1,0 +1,1 @@
+{"mqtt_host":"broker.emqx.io", "mqtt_port":1883, "mqtt_username":"", "mqtt_password":"", "topic_prefix":"campus_arund/bus"}

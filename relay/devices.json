@@ -1,6 +1,6 @@
 {
   "esp32-01": {
-    "bus_id": "bus1",
+    "bus_id": "bus2",
     "secret": "e3d2b3bb9875121546cd63cf5d3863a8"
   },
   "esp32-02": {
